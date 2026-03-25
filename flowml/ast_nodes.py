@@ -3,7 +3,7 @@
 # Each node type is one kind of construct in the language.
 
 from dataclasses import dataclass
-from typing import List, Any
+from typing import List, Any, Optional
 
 @dataclass
 class Variable:
@@ -20,11 +20,29 @@ class AssignmentStatement:
 class PrintStatement:
     """Represents a print statement in the AST"""
     expression: Any
+    newline: bool = False  # Indicates if this is a PRINTLN statement
+
+@dataclass
+class IfStatement:
+    """Represents an if statement in the AST"""
+    condition: Any
+    then_branch: List[Any]
+    else_branch: List[Any]
 
 @dataclass
 class NumberLiteral:
     """Represents a number literal in the AST"""
     value: int
+
+@dataclass
+class StringLiteral:
+    """Represents a string literal in the AST"""
+    value: str
+
+@dataclass
+class BoolLiteral:
+    """Represents a boolean literal in the AST"""
+    value: bool
 
 @dataclass
 class UnaryExpression:
@@ -38,6 +56,17 @@ class BinaryExpression:
     left: Any
     operator: str
     right: Any
+
+@dataclass
+class WhileStatement:
+    """
+    Represents a while loop statement.
+
+    condition â any expression node re-evaluated before each iteration
+    body      â list of AST nodes executed each iteration
+    """
+    condition: Any
+    body:      List[Any]
 
 @dataclass
 class Program:

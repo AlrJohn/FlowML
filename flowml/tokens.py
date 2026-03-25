@@ -3,11 +3,13 @@ from dataclasses import dataclass
 from typing import Any
 
 class TokenType(Enum):
-    """All possible token types in our language"""
+    """All possible token types in our language so far. We can add more as needed."""
     # Literals
     NUMBER = auto() # Integer literals
     
     # Keywords
+    PRINTLN = auto() # print with newline
+
     PRINT = auto()
 
     # Identifiers (variable names, function names, etc.)
@@ -28,6 +30,45 @@ class TokenType(Enum):
     RPAREN = auto()      # )
     SEMICOLON = auto()   # ;
     
+    # Literals
+    FLOAT = auto()   # 3.14
+    STRING = auto()   # "hello"
+    BOOLEAN = auto()   # true / false
+
+    # Control flow keywords
+    IF = auto()
+    ELSE = auto()
+    WHILE = auto()
+    FUNCTION = auto()
+    RETURN = auto()
+
+    # Comparison operators
+    LT = auto()   # <
+    GT = auto()   # >
+    EQ = auto()   # ==
+    NEQ = auto()   # !=
+    LTE = auto()   # <=
+    GTE = auto()   # >=
+
+    # Additional punctuation
+    LBRACE = auto()   # {
+    RBRACE = auto()   # }
+    COMMA = auto()   # ,
+
+    # ML keywords
+    LOAD = auto()
+    DROP = auto()
+    NORMALIZE = auto()
+    SPLIT = auto()
+    MODEL = auto()
+    TRAIN = auto()
+    EVALUATE = auto()
+    ON = auto()
+    INTO = auto()
+    COLUMN = auto()
+    COLUMNS = auto()
+    DATA = auto()
+
     # Special
     EOF = auto()         # End of file
 

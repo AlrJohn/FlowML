@@ -1,5 +1,9 @@
 from typing import Any
 from .ast_nodes import (
+    IfStatement,
+    StringLiteral,
+    BoolLiteral,
+    WhileStatement,
     Program,
     NumberLiteral,
     UnaryExpression,
@@ -35,7 +39,41 @@ class Evaluator:
         
         return results if results else [] 
 
+    def eval_IfStatement(self, node: IfStatement) -> Any:
+        condition = self.evaluate(node.condition)
+        if condition:
+            result = None
+            for stmt in node.then_branch:
+                result = self.evaluate(stmt)
+            return result
+        elif node.else_branch:
+            result = None
+            for stmt in node.else_branch:
+                result = self.evaluate(stmt)
+            return result
+        return None
+
+    def eval_WhileStatement(self, node: WhileStatement) -> Any:
+        """
+        Evaluate a while loop.
+        Re-evaluates the condition before each iteration.
+        Terminates when condition is false.
+        Returns the result of the last statement in the last iteration,
+        or None if the loop body never executed.
+        """
+        result = None
+        while self.evaluate(node.condition):
+            for stmt in node.body:
+                result = self.evaluate(stmt)
+        return result
+        
     def eval_NumberLiteral(self, node: NumberLiteral) -> int:
+        return node.value
+    
+    def eval_StringLiteral(self, node: StringLiteral) -> str:
+        return node.value
+
+    def eval_BoolLiteral(self, node: BoolLiteral) -> bool:
         return node.value
 
     def eval_UnaryExpression(self, node: UnaryExpression) -> int:
@@ -54,12 +92,21 @@ class Evaluator:
             if right == 0:
                 raise Exception("Evaluator: Division by zero")
             return left // right    # integer division for now
+        if node.operator == '==': return left == right
+        if node.operator == '!=': return left != right
+        if node.operator == '<':  return left < right
+        if node.operator == '>':  return left > right
+        if node.operator == '<=': return left <= right
+        if node.operator == '>=': return left >= right
         raise Exception(f"Evaluator: Unknown operator '{node.operator}'")
 
 
     def eval_PrintStatement(self, node: PrintStatement) -> int:
         value = self.evaluate(node.expression)
-        print(value)
+        if node.newline:
+            print(value, end='\n')
+        else:
+            print(value, end='')
         return value  # Return the value for testing purposes
 
 

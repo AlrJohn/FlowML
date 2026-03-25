@@ -1,10 +1,7 @@
 """
-Lexer (Tokenizer) for Toy Language
+Lexer (Tokenizer) for the FlowML Language
 Converts source code text into tokens
 """
-
-from dataclasses import dataclass
-from typing import Any, List, Optional
 
 from .tokens import TokenType, Token
 
@@ -37,7 +34,7 @@ class Lexer:
         else:
             self.current_char = None
     
-    def peek(self, offset: int = 1) -> Optional[str]:
+    def peek(self, offset: int = 1):
         """Look ahead without consuming"""
         peek_pos = self.pos + offset
         if peek_pos < len(self.source):
@@ -66,8 +63,36 @@ class Lexer:
             num_str += self.current_char
             self.advance()
         
+        # Check for float — decimal point followed by at least one digit
+        if self.current_char == '.' and self.peek() and self.peek().isdigit():
+            num_str += '.'
+            self.advance()
+            while self.current_char and self.current_char.isdigit():
+                num_str += self.current_char
+                self.advance()
+            return Token(TokenType.FLOAT, float(num_str), start_line, start_col)
+
+        # Integer fallback if no decimal point
         return Token(TokenType.NUMBER, int(num_str), start_line, start_col)
     
+    def read_string(self) -> Token:
+        """Read a double-quoted string literal, handling escape sequences."""
+        start_line, start_col = self.line, self.column
+        self.advance()  # skip opening "
+        s = ''
+        while self.current_char and self.current_char != '"':
+            if self.current_char == '\\':  # Handle escape sequences
+                self.advance()
+                escapes = {'n': '\n', 't': '\t', '\\': '\\', '"': '"'}
+                s += escapes.get(self.current_char, self.current_char)
+            else:
+                s += self.current_char
+            self.advance()
+        if not self.current_char:
+            self.error("Unterminated string literal")
+        self.advance()  # skip closing "
+        return Token(TokenType.STRING, s, start_line, start_col)
+
     def read_identifier(self) -> Token:
         """Read an identifier or keyword"""
         start_line = self.line
@@ -81,17 +106,31 @@ class Lexer:
         # Check if it's a keyword
         keywords = {
             'print': TokenType.PRINT,
+            'println': TokenType.PRINTLN,
+            'if': TokenType.IF,
+            'else': TokenType.ELSE,
+            'while': TokenType.WHILE,
+            'function': TokenType.FUNCTION,
+            'return': TokenType.RETURN,
+            'true': TokenType.BOOLEAN,
+            'false': TokenType.BOOLEAN,
+            'load': TokenType.LOAD,
+            'drop': TokenType.DROP,
+            'normalize': TokenType.NORMALIZE,
+            'split': TokenType.SPLIT,
+            'model': TokenType.MODEL,
+            'train': TokenType.TRAIN,
+            'evaluate': TokenType.EVALUATE,
+            'on': TokenType.ON,
+            'into': TokenType.INTO,
+            'column': TokenType.COLUMN,
+            'columns': TokenType.COLUMNS,
+            'data': TokenType.DATA,
         }
-        
-        token_type = keywords.get(id_str)
-        if token_type:
-            return Token(token_type, id_str, start_line, start_col)
-        
-        elif id_str: # It's an identifier
-            return Token(TokenType.IDENTIFIER, id_str, start_line, start_col)
-        
-        else:
-            self.error(f"Unknown identifier: {id_str}")
+
+        token_type = keywords.get(id_str, TokenType.IDENTIFIER)
+        value = True if id_str == 'true' else (False if id_str == 'false' else id_str)
+        return Token(token_type, value, start_line, start_col)
     
     def get_next_token(self) -> Token:
         """Get the next token from the source"""
@@ -118,9 +157,30 @@ class Lexer:
             if self.current_char.isalpha() or self.current_char == '_':
                 return self.read_identifier()
             
+            # Two-character operators — must appear before single-character block
+            if self.current_char == '=' and self.peek() == '=':
+                self.advance(); self.advance()
+                return Token(TokenType.EQ, '==', line, col)
+
+            if self.current_char == '!' and self.peek() == '=':
+                self.advance(); self.advance()
+                return Token(TokenType.NEQ, '!=', line, col)
+
+            if self.current_char == '<' and self.peek() == '=':
+                self.advance(); self.advance()
+                return Token(TokenType.LTE, '<=', line, col)
+
+            if self.current_char == '>' and self.peek() == '=':
+                self.advance(); self.advance()
+                return Token(TokenType.GTE, '>=', line, col)
+
             if self.current_char == '=':
                 self.advance()
                 return Token(TokenType.ASSIGN, '=', line, col)
+
+            # String literals
+            if self.current_char == '"':
+                return self.read_string()
 
             # Single-character tokens
             if self.current_char == '+':
@@ -150,14 +210,34 @@ class Lexer:
             if self.current_char == ';':
                 self.advance()
                 return Token(TokenType.SEMICOLON, ';', line, col)
-            
+
+            if self.current_char == '<':
+                self.advance()
+                return Token(TokenType.LT, '<', line, col)
+
+            if self.current_char == '>':
+                self.advance()
+                return Token(TokenType.GT, '>', line, col)
+
+            if self.current_char == '{':
+                self.advance()
+                return Token(TokenType.LBRACE, '{', line, col)
+
+            if self.current_char == '}':
+                self.advance()
+                return Token(TokenType.RBRACE, '}', line, col)
+
+            if self.current_char == ',':
+                self.advance()
+                return Token(TokenType.COMMA, ',', line, col)
+
             # Unknown character
             self.error(f"Unexpected character: '{self.current_char}'")
         
         # End of file
         return Token(TokenType.EOF, None, self.line, self.column)
     
-    def tokenize(self) -> List[Token]:
+    def tokenize(self):
         """Tokenize the entire source code"""
         tokens = []
         while True:

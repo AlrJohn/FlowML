@@ -1,12 +1,16 @@
 from typing import List, Any
 from .tokens import Token, TokenType
 from .ast_nodes import (
+    IfStatement,
+    StringLiteral,
+    WhileStatement,
     Variable,
     AssignmentStatement,
     PrintStatement,
     NumberLiteral,
     UnaryExpression,
     BinaryExpression,
+    BoolLiteral,
     Program
 )
 
@@ -55,36 +59,103 @@ class Parser:
     
     def parse_statement(self) -> Any:
         """Parse a single statement (like 'print expression;')"""
-        if self.current_token().type == TokenType.PRINT:
-            self.eat(TokenType.PRINT)
-            expr = self.parse_expression()
-            self.eat(TokenType.SEMICOLON)
-            return PrintStatement(expression=expr)
+        if self.current_token().type == TokenType.IF:
+            return self.parse_if_statement()
+
+        elif self.current_token().type == TokenType.WHILE:
+            return self.parse_while_statement()
         
+        elif self.current_token().type == TokenType.PRINT or self.current_token().type == TokenType.PRINTLN:
+            is_println = self.current_token().type == TokenType.PRINTLN
+            self.eat(self.current_token().type)
+            expr = self.parse_comparison()
+            self.eat(TokenType.SEMICOLON)
+            return PrintStatement(expression=expr, newline=is_println)
+
         elif self.current_token().type == TokenType.IDENTIFIER:
             if self.peek_token().type == TokenType.ASSIGN:  # look ahead
                 var_token = self.eat(TokenType.IDENTIFIER)
                 self.eat(TokenType.ASSIGN)
-                expr = self.parse_expression()
+                expr = self.parse_comparison()
                 self.eat(TokenType.SEMICOLON)
                 return AssignmentStatement(variable=Variable(name=var_token.value), expression=expr)
             else:
-                expr = self.parse_expression()  # treat as expression
+                expr = self.parse_comparison()  # treat as expression
                 self.eat(TokenType.SEMICOLON)
                 return expr
-        
+
         else:
-            expr = self.parse_expression()
+            expr = self.parse_comparison()
             self.eat(TokenType.SEMICOLON)
             return expr
         
 
-        # else:
-        #     raise Exception(
-        #         f"Parser Error at {self.current_token().line}:{self.current_token().column}: "
-        #         f"Unexpected token {self.current_token().type.name} ({self.current_token().value!r})"
-        #     )
-        
+    def parse_comparison(self) -> Any:
+        """
+        Handles comparison operators: ==, !=, <, >, <=, >=
+        These have lower precedence than arithmetic but higher than assignment.
+
+        comparison = expression ((==|!=|<|>|<=|>=) expression)*
+        """
+        node = self.parse_expression()
+
+        comparison_ops = (
+            TokenType.EQ, TokenType.NEQ,
+            TokenType.LT, TokenType.GT,
+            TokenType.LTE, TokenType.GTE,
+        )
+
+        while self.current_token().type in comparison_ops:
+            op_token = self.eat(self.current_token().type)
+            right = self.parse_expression()
+            node = BinaryExpression(left=node, operator=op_token.value, right=right)
+
+        return node
+
+    def parse_block(self) -> List[Any]:
+        """
+        Parse a block of statements enclosed in braces.
+        block = '{' statement* '}'
+        Returns a list of AST nodes.
+        """
+        self.eat(TokenType.LBRACE)
+        statements = []
+        while self.current_token().type not in (TokenType.RBRACE, TokenType.EOF):
+            statements.append(self.parse_statement())
+        self.eat(TokenType.RBRACE)
+        return statements
+
+    def parse_if_statement(self) -> IfStatement:
+        """
+        Parse an if/else conditional statement.
+        if_stmt = 'if' '(' comparison ')' block [ 'else' block ]
+        """
+        self.eat(TokenType.IF)
+        self.eat(TokenType.LPAREN)
+        condition = self.parse_comparison()
+        self.eat(TokenType.RPAREN)
+        then_branch = self.parse_block()
+
+        else_branch = []
+        if self.current_token().type == TokenType.ELSE:
+            self.eat(TokenType.ELSE)
+            else_branch = self.parse_block()
+
+        return IfStatement(condition=condition, then_branch=then_branch, else_branch=else_branch)
+
+    def parse_while_statement(self) -> WhileStatement:
+        """
+        Parse a while loop statement.
+        while_stmt = 'while' '(' comparison ')' block
+        """
+        self.eat(TokenType.WHILE)
+        self.eat(TokenType.LPAREN)
+        condition = self.parse_comparison()
+        self.eat(TokenType.RPAREN)
+        body = self.parse_block()
+
+        return WhileStatement(condition=condition, body=body)
+
     def parse_program(self) -> Program:
         """Parse a sequence of statements until EOF"""
         statements = []
@@ -144,7 +215,15 @@ class Parser:
             self.eat(TokenType.NUMBER)
             return NumberLiteral(value=token.value)
         
-        elif token.type == TokenType.IDENTIFIER:
+        elif token.type == TokenType.STRING:
+            self.eat(TokenType.STRING)
+            return StringLiteral(value=token.value)
+        
+        elif token.type == TokenType.BOOLEAN:
+            self.eat(TokenType.BOOLEAN)
+            return BoolLiteral(value=token.value)
+        
+        elif token.type == TokenType.IDENTIFIER: # Treat identifiers as variables (could be part of an expression or a statement)
             self.eat(TokenType.IDENTIFIER)
             return Variable(name=token.value)
         
