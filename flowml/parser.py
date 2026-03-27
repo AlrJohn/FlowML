@@ -1,8 +1,11 @@
 from typing import List, Any
 from .tokens import Token, TokenType
 from .ast_nodes import (
+    EvaluateStatement,
+    FloatLiteral,
     IfStatement,
     StringLiteral,
+    TrainStatement,
     WhileStatement,
     Variable,
     AssignmentStatement,
@@ -11,6 +14,11 @@ from .ast_nodes import (
     UnaryExpression,
     BinaryExpression,
     BoolLiteral,
+    LoadStatement,
+    DropStatement,
+    NormalizeStatement,
+    SplitStatement,
+    ModelStatement,
     Program
 )
 
@@ -71,7 +79,28 @@ class Parser:
             expr = self.parse_comparison()
             self.eat(TokenType.SEMICOLON)
             return PrintStatement(expression=expr, newline=is_println)
+        
+        elif self.current_token().type == TokenType.LOAD:
+            return self.parse_load_statement()
 
+        elif self.current_token().type == TokenType.DROP:
+            return self.parse_drop_statement()
+
+        elif self.current_token().type == TokenType.NORMALIZE:
+            return self.parse_normalize_statement()
+
+        elif self.current_token().type == TokenType.SPLIT:
+            return self.parse_split_statement()
+
+        elif self.current_token().type == TokenType.MODEL:
+            return self.parse_model_statement()
+
+        elif self.current_token().type == TokenType.TRAIN:
+            return self.parse_train_statement()
+        
+        elif self.current_token().type == TokenType.IDENTIFIER and self.peek_token().type == TokenType.ASSIGN and self.peek_token(2).type == TokenType.EVALUATE:
+            return self.parse_evaluate_statement()
+        
         elif self.current_token().type == TokenType.IDENTIFIER:
             if self.peek_token().type == TokenType.ASSIGN:  # look ahead
                 var_token = self.eat(TokenType.IDENTIFIER)
@@ -156,6 +185,116 @@ class Parser:
 
         return WhileStatement(condition=condition, body=body)
 
+    def parse_load_statement(self) -> LoadStatement:
+        """load "path/to/file.csv";"""
+        self.eat(TokenType.LOAD)
+        path_token = self.eat(TokenType.STRING)
+        self.eat(TokenType.SEMICOLON)
+        return LoadStatement(filename=path_token.value)
+
+
+    def parse_drop_statement(self) -> DropStatement:
+        """drop columns "col1", "col2";"""
+        self.eat(TokenType.DROP)
+        self.eat(TokenType.COLUMNS)
+        columns = self._parse_string_list()
+        self.eat(TokenType.SEMICOLON)
+        return DropStatement(column_names=columns)
+
+
+    def parse_normalize_statement(self) -> NormalizeStatement:
+        """normalize columns "col1", "col2";"""
+        self.eat(TokenType.NORMALIZE)
+        self.eat(TokenType.COLUMNS)
+        columns = self._parse_string_list()
+        self.eat(TokenType.SEMICOLON)
+        return NormalizeStatement(column_names=columns)
+
+
+
+    def _parse_string_list(self) -> List[str]:
+        """
+        Helper - parse one or more comma-separated string literals.
+        Used by both drop and normalize.
+        Returns a list of string values.
+        """
+        strings = []
+        strings.append(self.eat(TokenType.STRING).value)
+        while self.current_token().type == TokenType.COMMA:
+            self.eat(TokenType.COMMA)
+            strings.append(self.eat(TokenType.STRING).value)
+        return strings
+
+
+    def parse_split_statement(self) -> SplitStatement:
+        """split data into train=0.8 test=0.2;"""
+        self.eat(TokenType.SPLIT)
+        self.eat(TokenType.DATA)
+        self.eat(TokenType.INTO)
+
+        # train=0.8 — TRAIN is a keyword, accepted here as param name
+        self.eat(TokenType.TRAIN)
+        self.eat(TokenType.ASSIGN)
+        train_token = self.eat(TokenType.FLOAT)
+
+        # test=0.2 — TEST is a keyword, accepted here as param name
+        self.eat(TokenType.TEST)
+        self.eat(TokenType.ASSIGN)
+        test_token = self.eat(TokenType.FLOAT)
+
+        self.eat(TokenType.SEMICOLON)
+        return SplitStatement(
+            train=train_token.value,
+            test=test_token.value
+        )
+
+
+    def parse_model_statement(self) -> ModelStatement:
+        """
+        model RandomForest;
+        model KNN neighbors=5;
+        model Ridge alpha=0.1;
+        """
+        self.eat(TokenType.MODEL)
+        model_name_token = self.eat(TokenType.IDENTIFIER)
+
+        # collect optional key=value params before semicolon
+        params = {}
+        while self.current_token().type == TokenType.IDENTIFIER:
+            key_token = self.eat(TokenType.IDENTIFIER)
+            self.eat(TokenType.ASSIGN)
+            val_token = self.parse_factor()   # handles NUMBER and FLOAT
+            params[key_token.value] = val_token.value
+
+        self.eat(TokenType.SEMICOLON)
+        return ModelStatement(
+            model_name=model_name_token.value,
+            params=params
+        )
+
+
+    def parse_train_statement(self) -> TrainStatement:
+        """train on train_set;"""
+        self.eat(TokenType.TRAIN)
+        self.eat(TokenType.ON)
+        dataset_token = self.eat(TokenType.IDENTIFIER)
+        self.eat(TokenType.SEMICOLON)
+        return TrainStatement(dataset=dataset_token.value)
+
+
+    def parse_evaluate_statement(self) -> EvaluateStatement:
+        """accuracy = evaluate on test_set;"""
+        result_var_token = self.eat(TokenType.IDENTIFIER)
+        self.eat(TokenType.ASSIGN)
+        self.eat(TokenType.EVALUATE)
+        self.eat(TokenType.ON)
+        dataset_token = self.eat(TokenType.IDENTIFIER)
+        self.eat(TokenType.SEMICOLON)
+        return EvaluateStatement(
+            result_var=result_var_token.value,
+            dataset=dataset_token.value
+        )
+
     def parse_program(self) -> Program:
         """Parse a sequence of statements until EOF"""
         statements = []
@@ -215,6 +354,10 @@ class Parser:
             self.eat(TokenType.NUMBER)
             return NumberLiteral(value=token.value)
         
+        elif token.type == TokenType.FLOAT:
+            self.eat(TokenType.FLOAT)
+            return FloatLiteral(value=token.value)
+        
         elif token.type == TokenType.STRING:
             self.eat(TokenType.STRING)
             return StringLiteral(value=token.value)
@@ -239,8 +382,8 @@ class Parser:
                 f"Unexpected token {token.type.name} ({token.value!r})"
             )
         
-    def peek_token(self) -> Token:
-        if self.pos + 1 < len(self.tokens):
-            return self.tokens[self.pos + 1]
+    def peek_token(self, n: int = 1) -> Token:
+        if self.pos + n < len(self.tokens):
+            return self.tokens[self.pos + n]
         return None
 

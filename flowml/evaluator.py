@@ -1,26 +1,45 @@
 from typing import Any
+import numpy as np
+
+import pandas as pd
+
+from .MLBackend import MLBackend
+
 from .ast_nodes import (
+    EvaluateStatement,
+    FloatLiteral,
     IfStatement,
+    ModelStatement,
     StringLiteral,
     BoolLiteral,
+    TrainStatement,
     WhileStatement,
     Program,
     NumberLiteral,
     UnaryExpression,
     BinaryExpression,
     PrintStatement,
+    LoadStatement,
+    DropStatement,
+    NormalizeStatement,
+    SplitStatement,
     AssignmentStatement,
     Variable
 )
 # EVALUATOR
 # Walks the AST and computes the result.
 # This is the "tree-walking interpreter" — it visits each node and returns
+# the result of evaluating that node.
+
+# Global state (like variables) is stored in the Evaluator instance.
+#the result from loadStatement is a pandas DataFrame, which we can store in the variables dictionary just like any other value. This allows us to manipulate the DataFrame in subsequent statements using its variable name.
 
 class Evaluator:
     """Visits each AST node and evaluates it to a value."""
 
     def __init__(self):
         self.variables = {}  # For storing variable values
+        self.ml_backend = MLBackend()  # Instance of MLBackend for ML operations
 
     def evaluate(self, node: Any) -> int:
         # Dispatch to the right method based on node type
@@ -70,6 +89,9 @@ class Evaluator:
     def eval_NumberLiteral(self, node: NumberLiteral) -> int:
         return node.value
     
+    def eval_FloatLiteral(self, node: FloatLiteral) -> float:
+        return node.value
+
     def eval_StringLiteral(self, node: StringLiteral) -> str:
         return node.value
 
@@ -109,6 +131,47 @@ class Evaluator:
             print(value, end='')
         return value  # Return the value for testing purposes
 
+    def eval_LoadStatement(self, node: LoadStatement) -> pd.DataFrame:
+        self.ml_backend.load(node.filename)
+        return self.ml_backend.df  # Return the DataFrame for testing purposes
+
+    def eval_DropStatement(self, node: DropStatement) -> pd.DataFrame:
+        if self.ml_backend.df is None:
+            raise Exception("Evaluator: No active DataFrame to drop column from")
+        self.ml_backend.drop(node.column_names)
+        return self.ml_backend.df  # Return the DataFrame for testing purposes
+    
+    def eval_NormalizeStatement(self, node: NormalizeStatement) -> pd.DataFrame:
+        #we just store the columns to be normalized, and wait for the train statement to actually perform the normalization. This allows us to keep the normalization logic separate from the statement that specifies which columns to normalize.
+        if self.ml_backend.df is None:
+            raise Exception("Evaluator: No active DataFrame to normalize")
+
+        self.ml_backend.normalize(node.column_names)
+        return self.ml_backend.df  # Return the DataFrame for testing purposes
+    
+    def eval_SplitStatement(self, node: SplitStatement) -> tuple:
+        
+        self.ml_backend.split(node.train, node.test)
+        # bind results as regular variables so they can be referenced by name
+        self.variables['train_set'] = self.ml_backend.train_set
+        self.variables['test_set']  = self.ml_backend.test_set
+
+    def eval_ModelStatement(self, node: ModelStatement) -> str:
+        self.ml_backend.set_model(node.model_name, node.params)
+
+    def eval_TrainStatement(self, node: TrainStatement) -> str:
+        if node.dataset not in self.variables:
+            raise Exception(f"Undefined variable '{node.dataset}'")
+        dataset = self.variables[node.dataset]
+        self.ml_backend.train(dataset)
+
+    def eval_EvaluateStatement(self, node: EvaluateStatement):
+        if node.dataset not in self.variables:
+            raise Exception(f"Undefined variable '{node.dataset}'")
+        dataset = self.variables[node.dataset]
+        result  = self.ml_backend.evaluate(dataset)
+        self.variables[node.result_var] = result
+        return result 
 
     def eval_AssignmentStatement(self, node: AssignmentStatement) -> int:
         value = self.evaluate(node.expression)

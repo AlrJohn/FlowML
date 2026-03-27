@@ -35,6 +35,10 @@ class NumberLiteral:
     value: int
 
 @dataclass
+class FloatLiteral:
+    value: float
+    
+@dataclass
 class StringLiteral:
     """Represents a string literal in the AST"""
     value: str
@@ -56,6 +60,44 @@ class BinaryExpression:
     left: Any
     operator: str
     right: Any
+
+@dataclass
+class LoadStatement:
+    """Represents a load statement in the AST"""
+    filename: str
+
+@dataclass
+class DropStatement:
+    """Represents a drop statement in the AST"""
+    column_names: List[str]
+
+@dataclass
+class NormalizeStatement:
+    """Represents a normalize statement in the AST"""
+    column_names: List[str]
+
+@dataclass
+class SplitStatement:
+    """Represents a split statement in the AST"""
+    train: float
+    test: float
+
+@dataclass
+class ModelStatement:
+    """Represents a model statement in the AST"""
+    model_name: str
+    params: Optional[dict] = None  # Optional parameters for the model, e.g. {"alpha": 0.5} for Ridge regression
+
+@dataclass
+class TrainStatement:
+    """Represents a train statement in the AST"""
+    dataset: str
+
+@dataclass
+class EvaluateStatement:
+    """Represents an evaluate statement in the AST"""
+    result_var: str
+    dataset: str
 
 @dataclass
 class WhileStatement:

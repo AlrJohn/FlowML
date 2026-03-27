@@ -120,10 +120,11 @@ class Lexer:
             'split': TokenType.SPLIT,
             'model': TokenType.MODEL,
             'train': TokenType.TRAIN,
+            'test': TokenType.TEST,
             'evaluate': TokenType.EVALUATE,
             'on': TokenType.ON,
             'into': TokenType.INTO,
-            'column': TokenType.COLUMN,
+            'column': TokenType.COLUMN, #Will most likely be removed in favor of COLUMNS
             'columns': TokenType.COLUMNS,
             'data': TokenType.DATA,
         }
