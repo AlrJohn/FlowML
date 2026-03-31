@@ -111,6 +111,24 @@ class WhileStatement:
     body:      List[Any]
 
 @dataclass
+class FunctionDefinition:
+    """Represents a function definition in the AST"""
+    name: str
+    parameters: List[str]
+    body: List[Any]
+
+@dataclass
+class FunctionCall:
+    """Represents a function call in the AST"""
+    name: str
+    arguments: List[Any]
+
+@dataclass
+class ReturnStatement:
+    """Represents a return statement in the AST"""
+    expression: Any
+
+@dataclass
 class Program:
     """Represents the entire program (a sequence of statements)"""
     statements: List[Any]

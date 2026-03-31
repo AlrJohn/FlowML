@@ -4,12 +4,16 @@ import numpy as np
 import pandas as pd
 
 from .MLBackend import MLBackend
+from .environment import Environment, ReturnException
 
 from .ast_nodes import (
     EvaluateStatement,
     FloatLiteral,
+    FunctionCall,
+    FunctionDefinition,
     IfStatement,
     ModelStatement,
+    ReturnStatement,
     StringLiteral,
     BoolLiteral,
     TrainStatement,
@@ -38,7 +42,7 @@ class Evaluator:
     """Visits each AST node and evaluates it to a value."""
 
     def __init__(self):
-        self.variables = {}  # For storing variable values
+        self.env = Environment() # Environment for storing variable values
         self.ml_backend = MLBackend()  # Instance of MLBackend for ML operations
 
     def evaluate(self, node: Any) -> int:
@@ -86,6 +90,70 @@ class Evaluator:
                 result = self.evaluate(stmt)
         return result
         
+
+    def eval_FunctionDefinition(self, node: FunctionDefinition):
+        """
+        Store the function definition in the global environment
+        so it can be called from anywhere in the program.
+        The FunctionDefinition node itself is the stored value.
+        """
+        self.env.set_global(node.name, node)
+        return None
+
+
+
+    def eval_FunctionCall(self, node: FunctionCall):
+        """
+        Call a function:
+        1. Look up the function definition by name
+        2. Evaluate all argument expressions in the CURRENT scope
+        3. Create a new child Environment for the function's local scope
+        4. Bind parameter names to argument values in the child scope
+        5. Execute the function body statements
+        6. Catch ReturnException and return its value
+        7. Return None if no return statement was hit
+        """
+        # Step 1 — look up function definition
+        func_def = self.env.get(node.name)
+        if not isinstance(func_def, FunctionDefinition):
+            raise Exception(f"'{node.name}' is not a function")
+
+        # Step 2 — evaluate arguments in current scope
+        if len(node.arguments) != len(func_def.parameters):
+            raise Exception(
+                f"Function '{node.name}' expects {len(func_def.parameters)} "
+                f"argument(s) but got {len(node.arguments)}"
+            )
+        arg_values = [self.evaluate(arg) for arg in node.arguments]
+
+        # Step 3 — create new child scope
+        previous_env = self.env
+        self.env = Environment(parent=previous_env)
+
+        # Step 4 — bind params to args in new scope
+        for param, value in zip(func_def.parameters, arg_values):
+            self.env.set(param, value)
+
+        # Step 5 & 6 — execute body, catch return
+        result = None
+        try:
+            for stmt in func_def.body:
+                self.evaluate(stmt)
+        except ReturnException as r:
+            result = r.value
+        finally:
+            # Step 7 — always restore previous scope
+            self.env = previous_env
+
+        return result
+
+
+    def eval_ReturnStatement(self, node: ReturnStatement) -> Any:
+
+        value = self.evaluate(node.expression) if node.expression else None
+        raise ReturnException(value)
+
+
     def eval_NumberLiteral(self, node: NumberLiteral) -> int:
         return node.value
     
@@ -153,33 +221,26 @@ class Evaluator:
         
         self.ml_backend.split(node.train, node.test)
         # bind results as regular variables so they can be referenced by name
-        self.variables['train_set'] = self.ml_backend.train_set
-        self.variables['test_set']  = self.ml_backend.test_set
+        self.env.set_global('train_set', self.ml_backend.train_set) # bind the train set as a global variable
+        self.env.set_global('test_set', self.ml_backend.test_set)  # bind the test set as a global variable
 
     def eval_ModelStatement(self, node: ModelStatement) -> str:
         self.ml_backend.set_model(node.model_name, node.params)
 
     def eval_TrainStatement(self, node: TrainStatement) -> str:
-        if node.dataset not in self.variables:
-            raise Exception(f"Undefined variable '{node.dataset}'")
-        dataset = self.variables[node.dataset]
+        dataset = self.env.get(node.dataset)
         self.ml_backend.train(dataset)
 
     def eval_EvaluateStatement(self, node: EvaluateStatement):
-        if node.dataset not in self.variables:
-            raise Exception(f"Undefined variable '{node.dataset}'")
-        dataset = self.variables[node.dataset]
+        dataset = self.env.get(node.dataset)
         result  = self.ml_backend.evaluate(dataset)
-        self.variables[node.result_var] = result
+        self.env.set(node.result_var, result)
         return result 
 
     def eval_AssignmentStatement(self, node: AssignmentStatement) -> int:
         value = self.evaluate(node.expression)
-        self.variables[node.variable.name] = value
+        self.env.set(node.variable.name, value)
         return value  # Return the assigned value for testing purposes
 
     def eval_Variable(self, node: Variable) -> int:
-        if node.name in self.variables:
-            return self.variables[node.name]
-        else:
-            raise Exception(f"Evaluator: Undefined variable '{node.name}'")
+        return self.env.get(node.name)

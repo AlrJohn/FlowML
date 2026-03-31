@@ -1,0 +1,119 @@
+FlowML Source Code: flowml/ast_nodes.py
+============================================================
+
+# AST NODES
+# The tree structure that represents the meaning of the source code.
+# Each node type is one kind of construct in the language.
+
+from dataclasses import dataclass
+from typing import List, Any, Optional
+
+@dataclass
+class Variable:
+    """Represents a variable in the AST"""
+    name: str
+
+@dataclass
+class AssignmentStatement:
+    """Represents an assignment statement in the AST"""
+    variable: Variable
+    expression: Any
+
+@dataclass
+class PrintStatement:
+    """Represents a print statement in the AST"""
+    expression: Any
+    newline: bool = False  # Indicates if this is a PRINTLN statement
+
+@dataclass
+class IfStatement:
+    """Represents an if statement in the AST"""
+    condition: Any
+    then_branch: List[Any]
+    else_branch: List[Any]
+
+@dataclass
+class NumberLiteral:
+    """Represents a number literal in the AST"""
+    value: int
+
+@dataclass
+class FloatLiteral:
+    value: float
+    
+@dataclass
+class StringLiteral:
+    """Represents a string literal in the AST"""
+    value: str
+
+@dataclass
+class BoolLiteral:
+    """Represents a boolean literal in the AST"""
+    value: bool
+
+@dataclass
+class UnaryExpression:
+    """Represents a unary expression in the AST"""
+    operator: str
+    operand: Any
+
+@dataclass
+class BinaryExpression:
+    """Represents a binary expression in the AST"""
+    left: Any
+    operator: str
+    right: Any
+
+@dataclass
+class LoadStatement:
+    """Represents a load statement in the AST"""
+    filename: str
+
+@dataclass
+class DropStatement:
+    """Represents a drop statement in the AST"""
+    column_names: List[str]
+
+@dataclass
+class NormalizeStatement:
+    """Represents a normalize statement in the AST"""
+    column_names: List[str]
+
+@dataclass
+class SplitStatement:
+    """Represents a split statement in the AST"""
+    train: float
+    test: float
+
+@dataclass
+class ModelStatement:
+    """Represents a model statement in the AST"""
+    model_name: str
+    params: Optional[dict] = None  # Optional parameters for the model, e.g. {"alpha": 0.5} for Ridge regression
+
+@dataclass
+class TrainStatement:
+    """Represents a train statement in the AST"""
+    dataset: str
+
+@dataclass
+class EvaluateStatement:
+    """Represents an evaluate statement in the AST"""
+    result_var: str
+    dataset: str
+
+@dataclass
+class WhileStatement:
+    """
+    Represents a while loop statement.
+
+    condition â any expression node re-evaluated before each iteration
+    body      â list of AST nodes executed each iteration
+    """
+    condition: Any
+    body:      List[Any]
+
+@dataclass
+class Program:
+    """Represents the entire program (a sequence of statements)"""
+    statements: List[Any]

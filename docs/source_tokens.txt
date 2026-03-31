@@ -1,0 +1,90 @@
+FlowML Source Code: flowml/tokens.py
+============================================================
+
+from enum import Enum, auto
+from dataclasses import dataclass
+from typing import Any
+
+class TokenType(Enum):
+    """All possible token types in our language so far. We can add more as needed."""
+    # Literals
+    NUMBER = auto() # Integer literals
+    
+    # Keywords
+    PRINTLN = auto() # print with newline
+
+    PRINT = auto()
+
+    # Identifiers (variable names, function names, etc.)
+    IDENTIFIER = auto()
+
+    ASSIGN = auto() # =
+    
+    # Operators
+
+    PLUS = auto() # the auto function automatically assigns values to the enum members
+    MINUS = auto()
+    MULTIPLY = auto()
+    DIVIDE = auto()
+    
+    
+    # Punctuation
+    LPAREN = auto()      # (
+    RPAREN = auto()      # )
+    SEMICOLON = auto()   # ;
+    
+    # Literals
+    FLOAT = auto()   # 3.14
+    STRING = auto()   # "hello"
+    BOOLEAN = auto()   # true / false
+
+    # Control flow keywords
+    IF = auto()
+    ELSE = auto()
+    WHILE = auto()
+    FUNCTION = auto()
+    RETURN = auto()
+
+    # Comparison operators
+    LT = auto()   # <
+    GT = auto()   # >
+    EQ = auto()   # ==
+    NEQ = auto()   # !=
+    LTE = auto()   # <=
+    GTE = auto()   # >=
+
+    # Additional punctuation
+    LBRACE = auto()   # {
+    RBRACE = auto()   # }
+    COMMA = auto()   # ,
+
+    # ML keywords
+    LOAD = auto()
+    DROP = auto()
+    NORMALIZE = auto()
+    SPLIT = auto()
+    MODEL = auto()
+    TRAIN = auto()
+    TEST = auto()
+    EVALUATE = auto()
+    ON = auto()
+    INTO = auto()
+    COLUMN = auto() #Will most likely be removed in favor of COLUMNS
+    COLUMNS = auto()
+    DATA = auto()
+
+    # Special
+    EOF = auto()         # End of file
+
+
+@dataclass
+class Token:
+    """Represents a single token"""
+    type: TokenType
+    value: Any
+    line: int
+    column: int
+    
+    def __repr__(self):
+        return f"Token({self.type.name}, {self.value}, {self.line}:{self.column})"
+

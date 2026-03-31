@@ -6,3 +6,9 @@ while (x > 0){
 }
 
 
+function fn(){
+    println 5;
+    return;
+}
+
+fn();

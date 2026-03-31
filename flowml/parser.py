@@ -3,7 +3,10 @@ from .tokens import Token, TokenType
 from .ast_nodes import (
     EvaluateStatement,
     FloatLiteral,
+    FunctionCall,
+    FunctionDefinition,
     IfStatement,
+    ReturnStatement,
     StringLiteral,
     TrainStatement,
     WhileStatement,
@@ -72,6 +75,12 @@ class Parser:
 
         elif self.current_token().type == TokenType.WHILE:
             return self.parse_while_statement()
+        
+        elif self.current_token().type == TokenType.FUNCTION:
+            return self.parse_function_definition()
+        
+        elif self.current_token().type == TokenType.RETURN:
+            return self.parse_return_statement()
         
         elif self.current_token().type == TokenType.PRINT or self.current_token().type == TokenType.PRINTLN:
             is_println = self.current_token().type == TokenType.PRINTLN
@@ -184,6 +193,62 @@ class Parser:
         body = self.parse_block()
 
         return WhileStatement(condition=condition, body=body)
+
+    def parse_function_definition(self) -> FunctionDefinition:
+        """
+        Parse a function definition.
+        function_def = 'function' IDENTIFIER '(' [param_list] ')' block
+
+        param_list = IDENTIFIER (',' IDENTIFIER)*
+        """
+        self.eat(TokenType.FUNCTION)
+        name_token = self.eat(TokenType.IDENTIFIER)
+
+        self.eat(TokenType.LPAREN)
+        params = []
+        if self.current_token().type == TokenType.IDENTIFIER:
+            params.append(self.eat(TokenType.IDENTIFIER).value)
+            while self.current_token().type == TokenType.COMMA:
+                self.eat(TokenType.COMMA)
+                params.append(self.eat(TokenType.IDENTIFIER).value)
+        self.eat(TokenType.RPAREN)
+
+        body = self.parse_block()
+        return FunctionDefinition(name=name_token.value, parameters=params, body=body)
+
+    def parse_return_statement(self) -> ReturnStatement:
+        """
+        Parse a return statement.
+        return_stmt = 'return' expression ';'
+        """
+
+        self.eat(TokenType.RETURN)
+
+        if self.current_token().type == TokenType.SEMICOLON:
+            self.eat(TokenType.SEMICOLON)
+            return ReturnStatement(expression=None)
+            
+        # return with value
+        expression = self.parse_comparison()
+        self.eat(TokenType.SEMICOLON)
+        return ReturnStatement(expression=expression)
+    
+    def parse_function_call(self, name: str) -> FunctionCall:
+        """
+        Parse the argument list of a function call.
+        Assumes the function name has already been consumed.
+        function_call = '(' [arg_list] ')'
+        arg_list = expression (',' expression)*
+        """
+        self.eat(TokenType.LPAREN)
+        args = []
+        if self.current_token().type != TokenType.RPAREN:
+            args.append(self.parse_comparison())
+            while self.current_token().type == TokenType.COMMA:
+                self.eat(TokenType.COMMA)
+                args.append(self.parse_comparison())
+        self.eat(TokenType.RPAREN)
+        return FunctionCall(name=name, arguments=args)
 
     def parse_load_statement(self) -> LoadStatement:
         """load "path/to/file.csv";"""
@@ -368,6 +433,8 @@ class Parser:
         
         elif token.type == TokenType.IDENTIFIER: # Treat identifiers as variables (could be part of an expression or a statement)
             self.eat(TokenType.IDENTIFIER)
+            if self.current_token().type == TokenType.LPAREN:
+                return self.parse_function_call(token.value)
             return Variable(name=token.value)
         
         elif token.type == TokenType.LPAREN:

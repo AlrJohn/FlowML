@@ -17,4 +17,11 @@ if __name__ == '__main__':
 
     else:
         from flowml import interpret
-        interpret(source)
+        from flowml import analyze
+        
+        errors = analyze(source)
+        if errors:
+            for error in errors:
+                print(error)
+        else:
+            interpret(source)

@@ -5,7 +5,6 @@ Run with: python -m pytest tests/test_ml.py -v
 Or:        python tests/test_ml.py
 
 Assumes iris.csv is in the same directory as main.py.
-Adjust CSV_PATH if your iris.csv lives elsewhere.
 """
 
 import sys
