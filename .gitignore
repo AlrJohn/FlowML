@@ -1,0 +1,15 @@
+# Local-only files (presentations, NotebookLM sources, scratch test files)
+local/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Pytest cache
+.pytest_cache/
+
+# Editor / OS artifacts
+.DS_Store
+Thumbs.db
+*.swp

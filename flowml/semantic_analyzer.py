@@ -3,7 +3,7 @@ semantic_analyzer.py
 --------------------
 Static semantic analysis pass for FlowML.
 
-Runs over the AST *before* execution and collects SemanticErrors for:
+Runs over the AST before execution and collects SemanticErrors for:
   - Use of undeclared variables
   - Type mismatches in assignments (strict mode)
   - Incompatible operand types in arithmetic / comparison expressions
@@ -11,19 +11,10 @@ Runs over the AST *before* execution and collects SemanticErrors for:
   - Invalid split ratios (must sum to 1.0)
   - Unknown model names
 
-Usage (programmatic):
-    from flowml.semantic_analyzer import SemanticAnalyzer
-    errors = SemanticAnalyzer().analyze(ast)
-    for e in errors: print(e)
-
-Usage (via interpret helper):
-    from flowml import analyze
-    errors = analyze(source)
 """
 
 from __future__ import annotations
 
-import sys
 from dataclasses import dataclass
 
 from .symbol_table import SymbolTable
@@ -50,7 +41,7 @@ from .ast_nodes import (
 )
 
 # ---------------------------------------------------------------------------
-# Known ML models (mirrors MLBackend.MODEL_MAP)
+# Known ML models
 # ---------------------------------------------------------------------------
 
 KNOWN_MODELS = {
@@ -73,7 +64,7 @@ _ORDERABLE  = {"int", "float", "str"}
 @dataclass
 class SemanticError:
     message: str
-    node_type: str = ""   # AST node class name, for context
+    node_type: str = "" # AST node class name, for better error messages
 
     def __str__(self) -> str:
         prefix = f"[{self.node_type}] " if self.node_type else ""
@@ -114,10 +105,7 @@ class SemanticAnalyzer:
             self._visit(stmt)
         return self.errors
 
-    # -----------------------------------------------------------------------
     # Internal helpers
-    # -----------------------------------------------------------------------
-
     def _error(self, msg: str, node=None) -> None:
         node_type = type(node).__name__ if node is not None else ""
         self.errors.append(SemanticError(message=msg, node_type=node_type))
@@ -206,21 +194,21 @@ class SemanticAnalyzer:
     # -----------------------------------------------------------------------
 
     def _visit_AssignmentStatement(self, node: AssignmentStatement) -> None:
-        rhs_type = self._visit(node.expression)
+        assigned_expression_type = self._visit(node.expression)
         name = node.variable.name
 
         if self.symbol_table.contains(name):
             declared_type = self.symbol_table.get_dtype(name)
             if (self.strict_types
-                    and rhs_type != "unknown"
+                    and assigned_expression_type != "unknown"
                     and declared_type != "unknown"
-                    and rhs_type != declared_type):
+                    and assigned_expression_type != declared_type):
                 self._error(
                     f"Type mismatch for '{name}': declared as '{declared_type}', "
-                    f"assigned '{rhs_type}'", node
+                    f"assigned '{assigned_expression_type}'", node
                 )
         else:
-            dtype = rhs_type if rhs_type != "unknown" else "unknown"
+            dtype = assigned_expression_type if assigned_expression_type != "unknown" else "unknown"
             self.symbol_table.declare_type(name, dtype)
 
     def _visit_PrintStatement(self, node: PrintStatement) -> None:

@@ -18,9 +18,12 @@ Token Stream [Token, Token, Token, ...]
    Parser (parser.py)
       ↓  parse()
 Abstract Syntax Tree (AST)
+      ├──► Semantic Analyzer (semantic_analyzer.py)  [optional static pass]
+      │         uses SymbolTable (symbol_table.py)
       ↓
    Evaluator (evaluator.py)
       ↓  evaluate()
+      │    uses Environment (environment.py)
 Results / Side Effects
       ↓
 MLBackend (MLBackend.py)
@@ -31,16 +34,19 @@ ML Output (accuracy, trained model, etc.)
 **File structure:**
 ```
 flowml/
-├── __init__.py      # Package entry: interpret() function
-├── tokens.py        # TokenType enum and Token dataclass
-├── lexer.py         # Lexer: source text → token list
-├── ast_nodes.py     # AST node dataclasses
-├── parser.py        # Parser: token list → AST
-├── evaluator.py     # Evaluator: AST → execution
-└── MLBackend.py     # scikit-learn integration layer
+├── __init__.py          # Package entry: interpret() and analyze() functions
+├── tokens.py            # TokenType enum and Token dataclass
+├── lexer.py             # Lexer: source text → token list
+├── ast_nodes.py         # AST node dataclasses
+├── parser.py            # Parser: token list → AST
+├── evaluator.py         # Evaluator: AST → execution
+├── environment.py       # Lexical scope management for the evaluator
+├── symbol_table.py      # HashTable + SymbolTable for the semantic analyzer
+├── semantic_analyzer.py # Static analysis pass (type checking, pipeline order)
+└── MLBackend.py         # scikit-learn integration layer
 ```
 
-**Entry function (`__init__.py`):**
+**Entry functions (`__init__.py`):**
 ```python
 def interpret(source: str) -> int:
     lexer  = Lexer(source)
@@ -620,3 +626,208 @@ println accuracy;
 **TestMLErrorHandling (6 tests):** Each test asserts that a specific misuse raises an exception with an informative message.
 
 **TestNormalizationDeferred (2 tests):** Confirms that deferred normalization works correctly (no data leakage) and that pipelines without normalization also work.
+
+---
+
+## Component 5: Environment (`environment.py`)
+
+### Design
+
+The `Environment` class implements lexical variable scoping for the evaluator. Each scope level is an independent `vars` dictionary linked to an optional `parent` scope. This forms a chain — looking up a variable walks up the chain until found or until the global (parentless) scope is reached.
+
+### Why Use an Environment Instead of a Single Dictionary
+
+Earlier versions of FlowML used a single flat dictionary (`self.variables`) in the Evaluator. This breaks for functions: a function must not permanently modify global variables that happen to share a name with a local variable. The `Environment` chain solves this:
+
+- **Read:** Walk up the chain (`get`)
+- **Write locally:** Write to the current scope only (`set`)
+- **Write globally:** Walk to the root and write there (`set_global`) — used for function definitions and ML result bindings like `train_set`
+
+### ReturnException
+
+Function returns use Python's exception mechanism to unwind the call stack:
+
+```python
+class ReturnException(Exception):
+    def __init__(self, value):
+        self.value = value
+```
+
+When a `return` statement is evaluated, it raises `ReturnException(value)`. The function call handler (`eval_FunctionCall`) wraps the body execution in a `try/except ReturnException` block, extracts the value, restores the previous scope, and returns the value. This cleanly handles `return` from inside nested loops or conditionals without requiring special return-value passing through every loop/if evaluator.
+
+### Scope Lifecycle for a Function Call
+
+```
+global_env
+  vars: {x: 100, add: FunctionDefinition}
+
+  eval_FunctionCall("add", [3, 7]):
+    1. Evaluate args in global_env → [3, 7]
+    2. Create local_env = Environment(parent=global_env)
+    3. local_env.set("a", 3); local_env.set("b", 7)
+    4. Execute body in local_env
+       - "return a + b;" → raise ReturnException(10)
+    5. Catch exception → result = 10
+    6. Restore self.env = global_env
+    7. Return 10
+```
+
+---
+
+## Component 6: Symbol Table (`symbol_table.py`)
+
+### HashTable
+
+The `HashTable` is a fixed-size array of buckets with separate chaining (each bucket is a Python list). This is an implementation of the classic hash table taught in CS algorithms coursework.
+
+**Hash function:** Polynomial rolling hash
+```python
+def _hash(self, key: str) -> int:
+    h = 0
+    for ch in key:
+        h = (h * 31 + ord(ch)) % self.size
+    return h
+```
+
+Using a prime multiplier (31) ensures that single-character keys and short strings produce well-distributed bucket indices rather than clustering.
+
+**Collision resolution:** Separate chaining. When two keys hash to the same bucket index, both entries are appended to the same list. Lookup scans the list linearly. This is O(1) average, O(n) worst case.
+
+**API:**
+- `insert(name, dtype, value)` — adds new entry; raises `KeyError` if already present
+- `update(name, value)` — updates value; raises `KeyError` if missing
+- `lookup(name)` — returns copy of entry dict, or `None` if missing
+- `delete(name)` — removes entry; raises `KeyError` if missing
+- `contains(name)` — returns bool
+- `all_entries()` — returns all entries by bucket traversal
+- `display(label)` — prints a formatted table of all entries
+
+### SymbolTable Wrapper
+
+`SymbolTable` wraps `HashTable` with two additional responsibilities:
+
+1. **Type inference:** On `declare(name, value)`, automatically infers the FlowML type string from the Python value type using `_infer_type()`:
+   - `bool` → `"bool"` (checked before `int` since `bool` is a subclass of `int`)
+   - `int` → `"int"`
+   - `float` → `"float"`
+   - `str` → `"str"`
+   - `pd.DataFrame` → `"dataframe"`
+   - `tuple` → `"dataset"` (used for `(X, y)` pairs from split)
+
+2. **Strict type checking:** When `strict_types=True` (the default), calling `update(name, value)` with a value whose inferred type differs from the declared type raises `TypeError`. This catches programs like:
+   ```
+   x = 5;
+   x = "hello";    // TypeError in strict mode: declared int, got str
+   ```
+
+The semantic analyzer uses `declare_type(name, dtype)` rather than `declare(name, value)` because it knows types at analysis time but not actual runtime values.
+
+---
+
+## Component 7: Semantic Analyzer (`semantic_analyzer.py`)
+
+### Purpose
+
+The semantic analyzer is an optional static pass that runs on the AST *before* execution. It traverses the same AST the evaluator would run, but instead of computing values, it tracks types and pipeline state, collecting errors into a list of `SemanticError` objects.
+
+**Usage:**
+```python
+from flowml import analyze
+errors = analyze(source, strict_types=True)
+for e in errors:
+    print(e)   # e.g., "SemanticError: Undefined variable 'y'"
+```
+
+### Design: Collect, Don't Stop
+
+Unlike exceptions (which stop at the first error), the analyzer collects all errors it finds and returns them as a list. This lets the user see every problem in one pass, not just the first one.
+
+### Checks Performed
+
+**1. Undefined variable usage**
+The analyzer maintains a `SymbolTable`. Every `AssignmentStatement` calls `declare()` or `update()`. Every `Variable` node checks `contains()`. If a variable is read before it has been declared, an error is recorded.
+
+**2. Type mismatches (strict mode)**
+When `strict_types=True`, reassigning a variable to a different type is flagged. The `SymbolTable.update()` method raises `TypeError` in strict mode; the analyzer catches this and records it as a `SemanticError`.
+
+**3. Arithmetic type incompatibility**
+For `BinaryExpression` nodes with arithmetic operators (`+`, `-`, `*`, `/`), the analyzer checks that both operands are numeric types (`"int"` or `"float"`). Mixed string/int arithmetic is flagged before execution.
+
+**4. ML pipeline ordering**
+The analyzer tracks five boolean flags to enforce the correct ML pipeline order:
+```python
+self._loaded    = False   # set True after load
+self._split     = False   # set True after split
+self._modeled   = False   # set True after model
+self._trained   = False   # set True after train
+self._evaluated = False   # set True after evaluate
+```
+Violations like `split` before `load`, `train` before `model`, or `evaluate` before `train` are all caught.
+
+**5. Split ratio validation**
+`SplitStatement.train + SplitStatement.test` is checked to equal `1.0`. Floating-point equality is handled with a tolerance.
+
+**6. Unknown model names**
+The model name in `ModelStatement` is checked against the same `MODEL_MAP` used by `MLBackend`. Unknown names are flagged.
+
+### Limitation: Single-Pass, No Branching
+
+The analyzer traverses statements sequentially and does not simulate both branches of `if/else`. This means it may not catch errors that only occur in one branch of a conditional. Full branch analysis would require a more sophisticated multi-pass or lattice-based type analysis.
+
+---
+
+## Component 8: Functions in the Evaluator
+
+### FunctionDefinition
+
+```python
+def eval_FunctionDefinition(self, node: FunctionDefinition):
+    self.env.set_global(node.name, node)
+    return None
+```
+
+The function definition itself (the AST node) is stored as the value. This means function objects are first-class values in the environment — they can be looked up by name just like any variable.
+
+### FunctionCall
+
+The call evaluator implements the complete function call protocol:
+
+1. Look up the function definition by name (raises exception if not a `FunctionDefinition`)
+2. Evaluate all argument expressions in the *current* scope (before creating the child scope)
+3. Validate argument count matches parameter count
+4. Create a child `Environment` with the current scope as parent
+5. Bind each parameter name to its argument value in the child scope
+6. Execute the function body in the child scope; catch `ReturnException`
+7. Restore the previous scope in a `finally` block (guarantees cleanup even if an exception propagates)
+8. Return the caught return value, or `None` if no `return` was hit
+
+### Recursion
+
+Recursion works automatically. Each call creates a new child `Environment` with its own copy of local variables. The parent chain allows reading outer-scope variables (like the function definition itself), and the call stack is the Python call stack. Stack overflow for deeply recursive programs would raise Python's `RecursionError`.
+
+---
+
+## Updated Architecture: Entry Points
+
+`__init__.py` now exposes two public entry points:
+
+```python
+from flowml.lexer import Lexer
+from flowml.parser import Parser
+from flowml.evaluator import Evaluator
+from flowml.semantic_analyzer import SemanticAnalyzer
+
+def interpret(source: str):
+    """Full pipeline: lex → parse → evaluate."""
+    tokens = Lexer(source).tokenize()
+    ast    = Parser(tokens).parse()
+    return Evaluator().evaluate(ast)
+
+def analyze(source: str, strict_types: bool = True) -> list:
+    """Lex → parse → semantic analysis only. Returns list of SemanticErrors."""
+    tokens = Lexer(source).tokenize()
+    ast    = Parser(tokens).parse()
+    return SemanticAnalyzer(strict_types=strict_types).analyze(ast)
+```
+
+The semantic analysis pass is separate from execution and does not modify the AST. A program can pass semantic analysis and still fail at runtime (for errors the static pass cannot catch), and a program can be executed directly without running the semantic pass.

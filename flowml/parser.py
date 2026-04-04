@@ -38,7 +38,6 @@ from .ast_nodes import (
 
 class Parser:
     """Parses tokens into an abstract syntax tree (AST)"""
-    # For simplicity, we won't implement the parser in this example
 
     def __init__(self, tokens: List[Token]):
         self.tokens = tokens

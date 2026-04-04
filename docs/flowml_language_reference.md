@@ -7,10 +7,12 @@ FlowML is a Domain-Specific Language (DSL) designed for machine learning pipelin
 FlowML programs are interpreted by a tree-walking interpreter implemented in Python. The interpreter pipeline is:
 
 ```
-Source Code (.fml) → Lexer → Token Stream → Parser → AST → Evaluator → Output / ML Results
+Source Code (.fml) → Lexer → Token Stream → Parser → AST → [Semantic Analyzer] → Evaluator → Output / ML Results
 ```
 
-FlowML files conventionally use the `.fml` extension, though `.toy` is also used for experimental scripts.
+The Semantic Analyzer is an optional static pass that runs before execution. It catches type mismatches, undefined variable uses, and ML pipeline ordering violations without executing the program.
+
+FlowML files conventionally use the `.fml` extension.
 
 ---
 
@@ -119,7 +121,7 @@ result = 5 + 3 * 2;
 copy = accuracy;      // copy another variable's value
 ```
 
-Variables are stored in the evaluator's `self.variables` dictionary. They persist for the entire program's lifetime. Reading an undefined variable raises a runtime error.
+Variables are stored in an `Environment` object that supports nested scopes. Global variables persist for the entire program's lifetime. Variables defined inside a function are local to that function and are destroyed when the function returns. Reading an undefined variable raises a runtime error.
 
 ---
 
@@ -281,11 +283,109 @@ while (x > 0) {
 
 ---
 
-## 6. ML Data Operations
+## 6. Functions
+
+FlowML supports user-defined functions with parameters, a local scope, and return values.
+
+### 6.1 Function Definition
+
+**Syntax:**
+```
+function name(param1, param2, ...) {
+    statements
+    return expression;
+}
+```
+
+- `function` keyword followed by the function name and parenthesized parameter list
+- Function body is a block `{ ... }` of statements
+- `return` exits the function and optionally provides a value
+- A function without a `return` statement (or with `return;`) returns `null`/`None`
+- Function definitions are stored in the **global scope**, regardless of where they appear
+
+**Examples:**
+```
+function greet(name) {
+    println name;
+}
+
+function add(a, b) {
+    return a + b;
+}
+
+function factorial(n) {
+    if (n <= 1) {
+        return 1;
+    }
+    return n * factorial(n - 1);
+}
+```
+
+### 6.2 Function Calls
+
+Functions can be called as standalone statements or as part of expressions.
+
+**As a statement:**
+```
+greet("Alice");
+```
+
+**As an expression (assigned to variable):**
+```
+result = add(3, 7);
+println result;       // 10
+```
+
+**As part of a larger expression:**
+```
+x = add(2, 3) * add(4, 5);
+println x;            // 45
+```
+
+**Recursive calls:**
+```
+f = factorial(5);
+println f;            // 120
+```
+
+### 6.3 Scope Rules
+
+- Each function call creates a new **child scope** with access to the global scope
+- Parameters and local variables are created in the child scope
+- Assignments inside a function do not affect the calling scope
+- The function can read global variables but any assignment creates a local binding
+
+**Example:**
+```
+x = 100;
+
+function demo(n) {
+    x = n;        // local x — does NOT modify global x
+    return x;
+}
+
+result = demo(42);
+println result;   // 42
+println x;        // 100 — global x unchanged
+```
+
+### 6.4 Grammar (Functions)
+
+```
+function_def    ::= 'function' IDENTIFIER '(' param_list? ')' block
+param_list      ::= IDENTIFIER (',' IDENTIFIER)*
+return_stmt     ::= 'return' comparison? ';'
+function_call   ::= IDENTIFIER '(' arg_list? ')'
+arg_list        ::= comparison (',' comparison)*
+```
+
+---
+
+## 7. ML Data Operations
 
 These statements operate on the active DataFrame managed by the MLBackend.
 
-### 6.1 load
+### 7.1 load
 
 Loads a CSV file into memory as the active DataFrame.
 
@@ -304,7 +404,7 @@ load "path/to/file.csv";
 load "iris.csv";
 ```
 
-### 6.2 drop columns
+### 7.2 drop columns
 
 Removes one or more columns from the active DataFrame.
 
@@ -324,7 +424,7 @@ load "iris.csv";
 drop columns "sepal_width";
 ```
 
-### 6.3 normalize columns
+### 7.3 normalize columns
 
 Marks columns for StandardScaler normalization. Normalization is **deferred** — it does not happen immediately. Instead, the columns are recorded and applied during `split`, separately to the training and test sets. This is a critical design choice that **prevents data leakage**.
 
@@ -347,7 +447,7 @@ split data into train=0.8 test=0.2;
 // Normalization is applied here, after the split
 ```
 
-### 6.4 split
+### 7.4 split
 
 Splits the active DataFrame into training and test sets.
 
@@ -373,9 +473,9 @@ split data into train=0.8 test=0.2;
 
 ---
 
-## 7. ML Model Operations
+## 8. ML Model Operations
 
-### 7.1 model
+### 8.1 model
 
 Instantiates an ML model with optional parameters.
 
@@ -421,7 +521,7 @@ model NaiveBayes;
 model KMeans clusters=3;
 ```
 
-### 7.2 train
+### 8.2 train
 
 Trains the current model on a dataset.
 
@@ -440,7 +540,7 @@ train on dataset_variable;
 train on train_set;
 ```
 
-### 7.3 evaluate
+### 8.3 evaluate
 
 Evaluates the trained model on a dataset and stores the score in a variable.
 
@@ -462,9 +562,9 @@ println accuracy;     // e.g., 0.9666666666666667
 
 ---
 
-## 8. Complete Example Programs
+## 9. Complete Example Programs
 
-### Example 1: Simple Countdown (test_conditionals.fml)
+### Example 1: Simple Countdown
 ```
 x = 10;
 while (x > 0) {
@@ -474,7 +574,7 @@ while (x > 0) {
 // Prints 10, 9, 8, ..., 1
 ```
 
-### Example 2: ML Pipeline in a Loop (test.toy)
+### Example 2: ML Pipeline in a Loop
 ```
 i = 5;
 while (i > 0) {
@@ -537,7 +637,7 @@ println copy;
 
 ---
 
-## 9. Formal Grammar (BNF)
+## 10. Formal Grammar (BNF)
 
 ```
 program       ::= statement*
@@ -547,6 +647,8 @@ statement     ::= assignment_stmt
                 | while_stmt
                 | print_stmt
                 | println_stmt
+                | function_def
+                | return_stmt
                 | load_stmt
                 | drop_stmt
                 | normalize_stmt
@@ -554,6 +656,7 @@ statement     ::= assignment_stmt
                 | model_stmt
                 | train_stmt
                 | evaluate_stmt
+                | function_call ';'
                 | expression ';'
 
 assignment_stmt    ::= IDENTIFIER '=' comparison ';'
@@ -561,6 +664,8 @@ if_stmt            ::= 'if' '(' comparison ')' block ( 'else' block )?
 while_stmt         ::= 'while' '(' comparison ')' block
 print_stmt         ::= 'print' comparison ';'
 println_stmt       ::= 'println' comparison ';'
+function_def       ::= 'function' IDENTIFIER '(' param_list? ')' block
+return_stmt        ::= 'return' comparison? ';'
 
 load_stmt          ::= 'load' STRING ';'
 drop_stmt          ::= 'drop' 'columns' string_list ';'
@@ -571,19 +676,23 @@ train_stmt         ::= 'train' 'on' IDENTIFIER ';'
 evaluate_stmt      ::= IDENTIFIER '=' 'evaluate' 'on' IDENTIFIER ';'
 
 block              ::= '{' statement* '}'
-param_list         ::= (IDENTIFIER '=' factor)+
+param_list         ::= IDENTIFIER (',' IDENTIFIER)*
+arg_list           ::= comparison (',' comparison)*
+model_param_list   ::= (IDENTIFIER '=' factor)+
 string_list        ::= STRING (',' STRING)*
+function_call      ::= IDENTIFIER '(' arg_list? ')'
 
 comparison         ::= expression ((EQ|NEQ|LT|GT|LTE|GTE) expression)*
 expression         ::= term (('+' | '-') term)*
 term               ::= unary (('*' | '/') unary)*
 unary              ::= '-' unary | factor
-factor             ::= NUMBER | FLOAT | STRING | BOOLEAN | IDENTIFIER | '(' expression ')'
+factor             ::= NUMBER | FLOAT | STRING | BOOLEAN | IDENTIFIER
+                     | function_call | '(' expression ')'
 ```
 
 ---
 
-## 10. Error Handling
+## 11. Error Handling
 
 FlowML provides informative error messages for common errors:
 
@@ -600,19 +709,61 @@ FlowML provides informative error messages for common errors:
 | Runtime: file not found | `load "missing.csv";` | File not found error from pandas |
 | Runtime: drop missing column | `drop columns "fake";` | `MLBackend: Column 'fake' does not exist` |
 | Runtime: no DataFrame | `drop columns "x";` (no load) | `Evaluator: No active DataFrame to drop column from` |
+| Runtime: wrong arg count | `add(1)` (expects 2 params) | `Function 'add' expects 2 argument(s) but got 1` |
+| Runtime: call non-function | `x = 5; x(1);` | `'x' is not a function` |
 
 ---
 
-## 11. Current Limitations
+## 12. Semantic Analyzer
+
+FlowML includes an optional static analysis pass that runs before execution. It catches errors early — without running the program — and reports them as a list of `SemanticError` objects.
+
+**Usage:**
+```python
+from flowml import analyze
+errors = analyze(source_code)
+for e in errors:
+    print(e)
+```
+
+**Checks performed:**
+- Use of variables that have never been assigned
+- Type mismatches in assignments (when `strict_types=True`)
+- Arithmetic on incompatible types (e.g., string `+` integer)
+- ML pipeline ordering violations (e.g., `train` before `model`, `split` before `load`)
+- Invalid split ratios (must sum to 1.0)
+- Unknown model names
+
+The analyzer uses a `SymbolTable` backed by a custom hash table to track variable names, their types, and values throughout the analysis pass.
+
+---
+
+## 13. Current Limitations
 
 The following features are **not yet implemented** in the current version:
 
-- **Function definitions:** `function` and `return` tokens are defined in the lexer but the parser and evaluator do not handle function declarations yet.
 - **Boolean operators:** `and`, `or`, `not` are not supported. Conditions can only be simple comparisons.
 - **For loops:** No `for` construct exists. Iteration requires `while` with a counter.
 - **Arrays/Lists:** No array or list data type. No indexing syntax.
 - **String operations:** No string concatenation via `+`, no string length or slicing.
 - **Method calls:** No object method call syntax (e.g., `df.describe()`).
-- **Compilation to Python:** The `--compile` flag and `compile_to_python()` function are referenced but not yet implemented.
+- **Compilation to Python:** The `--compile` flag is referenced in `main.py` but not yet implemented.
 - **Float division:** The `/` operator currently performs integer (floor) division. True float division is not yet supported.
 - **Multiple datasets:** Only one active DataFrame at a time. Multiple datasets require re-loading.
+- **Break / continue:** No early loop exit keywords.
+
+---
+
+## 14. Future Work
+
+The following features are planned for future versions:
+
+- `and`, `or`, `not` boolean operators
+- `for item in list` iteration
+- Array/list type with indexing (`arr[i]`)
+- String operations (`+` concatenation, `.length`, slicing)
+- True float division with a `//` integer-division operator
+- `break` and `continue` statements
+- Multiple active DataFrames
+- Compilation to Python source code (`--compile` flag)
+- Optional type annotations for function parameters

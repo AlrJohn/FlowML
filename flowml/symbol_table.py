@@ -4,8 +4,6 @@ symbol_table.py
 Implements a HashTable using separate chaining (linked lists via Python lists)
 and a SymbolTable wrapper that tracks variable names, data types, and values
 for the FlowML interpreter.
-
-Assignment: CS470 Language Translator — Symbol Table via Hash Table
 """
 
 
@@ -94,7 +92,7 @@ class HashTable:
         return entries
 
     def display(self, label: str = "Symbol Table") -> None:
-        """Print every entry in a formatted table."""
+        """Print every entry in a formatted table. This is mainly for debugging and demonstration purposes."""
         headers = ["Variable", "Type", "Value"]
         keys    = ["name",     "dtype", "value"]
         entries = self.all_entries()
@@ -247,3 +245,5 @@ class SymbolTable:
 
     def __repr__(self) -> str:
         return f"SymbolTable(vars={len(self._table)}, strict={self.strict_types})"
+
+
