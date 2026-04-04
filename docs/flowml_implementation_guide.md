@@ -678,7 +678,7 @@ global_env
 
 ### HashTable
 
-The `HashTable` is a fixed-size array of buckets with separate chaining (each bucket is a Python list). This is an implementation of the classic hash table taught in CS algorithms coursework.
+The `HashTable` is a fixed-size array of buckets with separate chaining (each bucket is a Python list). This is an implementation of the classic hash table taught in CS algorithms classes.
 
 **Hash function:** Polynomial rolling hash
 ```python
