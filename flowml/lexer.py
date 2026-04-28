@@ -121,6 +121,7 @@ class Lexer:
             'model': TokenType.MODEL,
             'train': TokenType.TRAIN,
             'test': TokenType.TEST,
+            'target': TokenType.TARGET,
             'evaluate': TokenType.EVALUATE,
             'on': TokenType.ON,
             'into': TokenType.INTO,

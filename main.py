@@ -5,17 +5,23 @@ if __name__ == '__main__':
         print('Usage: python main.py <script.fml> [--compile] [--analyze]')
         sys.exit(1)
 
-    source = open(sys.argv[1]).read()
-
+    filepath = sys.argv[1]
+    try:
+        source = open(filepath).read()
+    except FileNotFoundError:
+        print(f"Error: File '{filepath}' not found.")
+        sys.exit(1)
 
     if '--compile' in sys.argv:
-        pass # Compilation logic not implemented yet, but this is where it would go
-        output_path = sys.argv[1].replace('.fml', '.py')
         from flowml import compile_to_python
-        python_code = compile_to_python(source)
-        open(output_path, 'w').write(python_code)
-        print(f'Compiled to {output_path}')
-
+        try:
+            python_code  = compile_to_python(source)
+            output_path  = filepath.replace('.fml', '.py').replace('.toy', '.py')
+            open(output_path, 'w').write(python_code)
+            print(f"Compiled successfully -> {output_path}")
+        except Exception as e:
+            print(f"Compilation failed: {e}")
+            sys.exit(1)
 
     elif '--analyze' in sys.argv:
         from flowml import analyze
@@ -27,10 +33,8 @@ if __name__ == '__main__':
             print("No semantic errors found.")
 
     else:
-        #No flags provided, running interpreter by default. Use --compile or --analyze for other modes.
-        from flowml import interpret
-        from flowml import analyze
-        
+        # Default: run the semantic analyzer first, then interpret
+        from flowml import analyze, interpret
         errors = analyze(source)
         if errors:
             for error in errors:

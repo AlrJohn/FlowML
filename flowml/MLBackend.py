@@ -76,15 +76,20 @@ class MLBackend:
         self.normalization_columns = column_names
         return self.df  
     
-    def split(self, train: float, test: float) -> tuple:
+    def split(self, train: float, test: float, target: str = None) -> tuple:
         if self.df is None:
             raise Exception("MLBackend: No active DataFrame to split")
         if not (train + test == 1.0):
             raise Exception("MLBackend: Train and test ratios must sum to 1")
-        
-        
-        X = self.df.iloc[:, :-1]  # all columns except the last one as features
-        y = self.df.iloc[:, -1]   # the last column as the target variable
+
+        if target is not None:
+            if target not in self.df.columns:
+                raise Exception(f"MLBackend: Target column '{target}' not found in DataFrame")
+            y = self.df[target]
+            X = self.df.drop(columns=[target])
+        else:
+            X = self.df.iloc[:, :-1]  # all columns except the last one as features
+            y = self.df.iloc[:, -1]   # the last column as the target variable
 
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test)
         

@@ -38,6 +38,9 @@ from .ast_nodes import (
     ModelStatement,
     TrainStatement,
     EvaluateStatement,
+    FunctionDefinition,
+    FunctionCall,
+    ReturnStatement,
 )
 
 # ---------------------------------------------------------------------------
@@ -88,6 +91,7 @@ class SemanticAnalyzer:
         self.strict_types = strict_types
         self.symbol_table = SymbolTable(strict_types=False)  # values not needed here
         self.errors: list[SemanticError] = []
+        self.functions: dict[str, FunctionDefinition] = {}  # name -> FunctionDefinition node
 
         # ML pipeline state flags
         self._data_loaded = False
@@ -225,6 +229,76 @@ class SemanticAnalyzer:
         self._visit(node.condition)
         for stmt in node.body:
             self._visit(stmt)
+
+    def _visit_FunctionDefinition(self, node: FunctionDefinition) -> None:
+        """
+        Add the function to self.functions so calls can be validated.
+        Then analyze the body in a temporary scope where the parameters
+        are pre-declared so they don't trigger 'undefined variable' errors.
+        """
+        # Register function before analyzing body so recursive calls are valid
+        self.functions[node.name] = node
+
+        # Temporarily declare parameters in the symbol table
+        declared = []
+        for param in node.parameters:
+            if not self.symbol_table.contains(param):
+                self.symbol_table.declare_type(param, "unknown")
+                declared.append(param)
+
+        # Analyze the function body
+        for stmt in node.body:
+            self._visit(stmt)
+
+        # Remove temporarily declared params so they don't
+        # pollute the global symbol table after the function definition
+        for param in declared:
+            try:
+                self.symbol_table._table.delete(param)
+            except KeyError:
+                pass
+
+
+    def _visit_FunctionCall(self, node: FunctionCall) -> str:
+        """
+        Validate that the function exists and that the argument count matches.
+        Then analyze each argument expression for type/undefined-var errors.
+        Returns 'unknown' since we don't track return types.
+        """
+        if node.name not in self.functions:
+            self._error(
+                f"Call to undefined function '{node.name}'", node
+            )
+            # Still analyze arguments even if function is unknown
+            for arg in node.arguments:
+                self._visit(arg)
+            return "unknown"
+
+        func_def = self.functions[node.name]
+        expected = len(func_def.parameters)
+        got = len(node.arguments)
+
+        if expected != got:
+            self._error(
+                f"Function '{node.name}' expects {expected} argument(s) "
+                f"but was called with {got}",
+                node,
+            )
+
+        # Analyze each argument expression
+        for arg in node.arguments:
+            self._visit(arg)
+
+        return "unknown"
+
+
+    def _visit_ReturnStatement(self, node: ReturnStatement) -> None:
+        """
+        Analyze the return expression if one exists.
+        Bare return (expression is None) is always valid.
+        """
+        if node.expression is not None:
+            self._visit(node.expression)
 
     # -----------------------------------------------------------------------
     # ML data statements

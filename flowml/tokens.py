@@ -69,6 +69,7 @@ class TokenType(Enum):
     COLUMN = auto() #Will most likely be removed in favor of COLUMNS
     COLUMNS = auto()
     DATA = auto()
+    TARGET = auto()
 
     # Special
     EOF = auto()         # End of file

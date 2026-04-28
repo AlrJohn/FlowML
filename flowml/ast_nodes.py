@@ -81,6 +81,7 @@ class SplitStatement:
     """Represents a split statement in the AST"""
     train: float
     test: float
+    target: str = None  # optional target column name; defaults to last column
 
 @dataclass
 class ModelStatement:

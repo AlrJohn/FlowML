@@ -219,7 +219,7 @@ class Evaluator:
     
     def eval_SplitStatement(self, node: SplitStatement) -> tuple:
         
-        self.ml_backend.split(node.train, node.test)
+        self.ml_backend.split(node.train, node.test, node.target)
         # bind results as regular variables so they can be referenced by name
         self.env.set_global('train_set', self.ml_backend.train_set) # bind the train set as a global variable
         self.env.set_global('test_set', self.ml_backend.test_set)  # bind the test set as a global variable

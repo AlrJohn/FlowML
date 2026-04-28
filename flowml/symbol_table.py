@@ -160,7 +160,6 @@ class SymbolTable:
     Responsibilities:
     - Declare variables with automatic type inference on first assignment
     - Validate that updates do not change the declared type (strict mode)
-    - Print the full table state on demand (and automatically on updates)
     """
 
     def __init__(self, strict_types: bool = True):
@@ -199,8 +198,6 @@ class SymbolTable:
 
         If strict_types is True, raises TypeError when the new value's
         inferred type differs from the declared type.
-
-        Prints the symbol table BEFORE and AFTER the update.
         """
         entry = self._table.lookup(name)
         if entry is None:
@@ -213,9 +210,7 @@ class SymbolTable:
                 f"declared as '{entry['dtype']}', got '{new_dtype}'."
             )
 
-        self.print_state(f"BEFORE update: {name} = {value}")
         self._table.update(name, value)
-        self.print_state(f"AFTER  update: {name} = {value}")
 
     def get(self, name: str):
         """Return the current value of a variable. Raises KeyError if undefined."""
@@ -233,12 +228,6 @@ class SymbolTable:
 
     def contains(self, name: str) -> bool:
         return self._table.contains(name)
-
-    # ---- display ----
-
-    def print_state(self, label: str = "Symbol Table State") -> None:
-        """Print the current symbol table."""
-        self._table.display(label)
 
     def __len__(self) -> int:
         return len(self._table)

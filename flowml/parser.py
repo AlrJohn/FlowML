@@ -291,7 +291,7 @@ class Parser:
 
 
     def parse_split_statement(self) -> SplitStatement:
-        """split data into train=0.8 test=0.2;"""
+        """split data into train=0.8 test=0.2 [target="col"];"""
         self.eat(TokenType.SPLIT)
         self.eat(TokenType.DATA)
         self.eat(TokenType.INTO)
@@ -306,10 +306,18 @@ class Parser:
         self.eat(TokenType.ASSIGN)
         test_token = self.eat(TokenType.FLOAT)
 
+        # optional target="column"
+        target = None
+        if self.current_token().type == TokenType.TARGET:
+            self.eat(TokenType.TARGET)
+            self.eat(TokenType.ASSIGN)
+            target = self.eat(TokenType.STRING).value
+
         self.eat(TokenType.SEMICOLON)
         return SplitStatement(
             train=train_token.value,
-            test=test_token.value
+            test=test_token.value,
+            target=target
         )
 
 
