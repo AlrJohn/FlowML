@@ -1,769 +1,550 @@
-# FlowML DSL: Complete Language Reference
+# FlowML Language Reference (Current)
 
-## Overview
+Last updated: 2026-04-30
 
-FlowML is a Domain-Specific Language (DSL) designed for machine learning pipelines. It provides a high-level, declarative syntax that abstracts away the complexity of traditional Python ML libraries such as scikit-learn, pandas, and numpy. The goal is to allow users to write complete ML workflows — from loading data to evaluating a trained model — in a concise, readable, domain-specific manner.
-
-FlowML programs are interpreted by a tree-walking interpreter implemented in Python. The interpreter pipeline is:
-
-```
-Source Code (.fml) → Lexer → Token Stream → Parser → AST → [Semantic Analyzer] → Evaluator → Output / ML Results
-```
-
-The Semantic Analyzer is an optional static pass that runs before execution. It catches type mismatches, undefined variable uses, and ML pipeline ordering violations without executing the program.
-
-FlowML files conventionally use the `.fml` extension.
+This document describes the current behavior of the FlowML DSL as implemented in this repository.
 
 ---
 
-## 1. Lexical Rules
+## 1. Overview
 
-### 1.1 Comments
+FlowML is a domain-specific language for writing machine learning pipelines and core control-flow logic in concise syntax.
 
-FlowML supports single-line comments using `//`. Everything from `//` to the end of the line is ignored.
+FlowML supports three major workflows:
 
-```
-// This is a comment
-x = 5; // inline comment
-```
+1. Interpret and execute a program.
+2. Run static semantic analysis only.
+3. Compile (transpile) FlowML source to standalone Python.
 
-### 1.2 Whitespace
+### 1.1 Execution Pipelines
 
-Spaces, tabs, and newlines are ignored between tokens. They serve only as separators.
+Interpreter pipeline:
 
-### 1.3 Identifiers
-
-Identifiers begin with a letter (`a-z`, `A-Z`) or underscore (`_`), followed by any combination of letters, digits, or underscores. Identifiers are used for variable names and model names.
-
-Examples: `x`, `accuracy`, `train_set`, `sepal_length`, `RandomForest`
-
-### 1.4 Keywords
-
-The following words are reserved keywords and cannot be used as identifiers:
-
-```
-print  println  if  else  while  function  return
-true  false
-load  drop  normalize  split  model  train  test
-evaluate  on  into  column  columns  data
+```text
+.fml source -> Lexer -> Parser -> AST -> Evaluator -> runtime output
 ```
 
-### 1.5 Literals
+Semantic analysis pipeline:
 
-**Integer:** A sequence of one or more digits.
-```
-5    42    0    100
-```
-
-**Float:** Digits, a decimal point, and more digits. At least one digit must appear after the decimal.
-```
-3.14    0.8    0.2    1.0
+```text
+.fml source -> Lexer -> Parser -> AST -> SemanticAnalyzer -> SemanticError list
 ```
 
-**String:** Characters enclosed in double quotes. Escape sequences supported:
-- `\n` → newline
-- `\t` → tab
-- `\\` → backslash
-- `\"` → double quote
+Compile pipeline:
 
-```
-"iris.csv"    "sepal_length"    "Hello, World!\n"
+```text
+.fml source -> Lexer -> Parser -> AST -> SemanticAnalyzer -> CodeGenerator -> .py source
 ```
 
-**Boolean:** The literals `true` and `false`.
+### 1.2 CLI Behavior (`main.py`)
 
-### 1.6 Operators and Punctuation
+- `python main.py program.fml`:
+  runs semantic analysis first, then interprets only if there are no semantic errors.
+- `python main.py program.fml --analyze`:
+  runs semantic analysis only.
+- `python main.py program.fml --compile`:
+  runs semantic analysis and emits Python code when valid.
 
+---
+
+## 2. Lexical Rules
+
+### 2.1 Comments
+
+Single-line comments start with `//` and continue to end-of-line.
+
+```flowml
+// full line comment
+x = 5; // trailing comment
 ```
-+  -  *  /          Arithmetic operators
-==  !=  <  >  <=  >= Comparison operators
-=                    Assignment
-(  )                 Parentheses
-{  }                 Block delimiters
-;                    Statement terminator
-,                    List separator
+
+### 2.2 Whitespace
+
+Spaces, tabs, and newlines are token separators only.
+
+### 2.3 Identifiers
+
+Identifiers begin with a letter or underscore and continue with letters, digits, or underscores.
+
+Examples:
+
+```text
+x
+train_set
+RandomForest
+_temp1
+```
+
+### 2.4 Reserved Keywords
+
+```text
+print println if else while function return
+true false
+load drop normalize split model train test target
+evaluate on into column columns data
+```
+
+### 2.5 Literals
+
+- Integer: `42`, `0`, `7`
+- Float: `0.8`, `3.14`, `1.0`
+- String: `"iris.csv"`, `"species"`
+- Boolean: `true`, `false`
+
+String escapes currently supported by the lexer:
+
+- `\n`
+- `\t`
+- `\\`
+- `\"`
+
+### 2.6 Operators and Punctuation
+
+```text
++  -  *  /
+==  !=  <  >  <=  >=
+=
+(  )  {  }
+;  ,
 ```
 
 ---
 
-## 2. Data Types
+## 3. Type Model
 
-FlowML is dynamically typed. Variables do not require type declarations. The following value types exist at runtime:
+FlowML is dynamically typed at runtime, with additional static type categories used by the semantic analyzer.
 
-| Type | Description | Examples |
-|------|-------------|---------|
-| Integer | Whole numbers | `5`, `0`, `-10` |
-| Float | Decimal numbers | `3.14`, `0.8` |
-| String | Text values | `"hello"`, `"iris.csv"` |
-| Boolean | Truth values | `true`, `false` |
-| DataFrame | Pandas DataFrame from CSV | (loaded via `load`) |
-| DatasetTuple | Pair `(X, y)` from split | (bound as `train_set`, `test_set`) |
-| Float (score) | Model accuracy | (returned by `evaluate`) |
+### 3.1 Runtime Value Kinds
+
+- Integer
+- Float
+- String
+- Boolean
+- DataFrame (from `load`)
+- Dataset tuple `(X, y)` (from `split`)
+- Model score float (from `evaluate`)
+
+### 3.2 Semantic Analyzer Type Labels
+
+The analyzer/symbol table track these type names:
+
+- `int`
+- `float`
+- `str`
+- `bool`
+- `dataset`
+- `dataframe`
+- `model`
+- `unknown`
 
 ---
 
-## 3. Variables and Assignment
+## 4. Core Language Syntax
 
-Variables are dynamically typed and scoped globally (single scope — no block scoping).
+All statements end with a semicolon `;`.
 
-**Syntax:**
-```
-variable_name = expression;
-```
+### 4.1 Assignment
 
-**Examples:**
-```
+```flowml
 x = 10;
-pi = 3.14159;
-label = "accuracy";
-flag = true;
-result = 5 + 3 * 2;
-copy = accuracy;      // copy another variable's value
+score = accuracy;
+result = (x + 5) * 2;
 ```
 
-Variables are stored in an `Environment` object that supports nested scopes. Global variables persist for the entire program's lifetime. Variables defined inside a function are local to that function and are destroyed when the function returns. Reading an undefined variable raises a runtime error.
+### 4.2 Output
 
----
+- `print expr;` prints without newline.
+- `println expr;` prints with newline.
 
-## 4. Expressions
-
-### 4.1 Arithmetic Expressions
-
-FlowML supports standard arithmetic with proper operator precedence.
-
-| Operator | Description | Precedence |
-|----------|-------------|------------|
-| `+` | Addition | Low |
-| `-` | Subtraction | Low |
-| `*` | Multiplication | Medium |
-| `/` | Integer Division | Medium |
-| `-x` | Unary negation | High |
-
-Note: Division (`/`) currently performs integer (floor) division.
-
-**Grammar:**
-```
-expression = term (('+' | '-') term)*
-term       = unary (('*' | '/') unary)*
-unary      = '-' unary | factor
-factor     = NUMBER | FLOAT | STRING | BOOLEAN | IDENTIFIER | '(' expression ')'
+```flowml
+print "Accuracy: ";
+println score;
 ```
 
-**Examples:**
-```
-result = 5 + 3 * 2;       // 11 (multiplication first)
-calc = (5 + 3) * 2;       // 16 (parens override precedence)
-neg = -10;                 // -10
-div = 7 / 2;              // 3 (integer division)
-```
+### 4.3 Conditionals
 
-### 4.2 Comparison Expressions
-
-Comparison expressions return a Boolean value (`true` or `false`).
-
-| Operator | Description |
-|----------|-------------|
-| `==` | Equal to |
-| `!=` | Not equal to |
-| `<` | Less than |
-| `>` | Greater than |
-| `<=` | Less than or equal |
-| `>=` | Greater than or equal |
-
-Comparisons have lower precedence than arithmetic. An arithmetic expression is evaluated first, and then the comparison is applied.
-
-**Grammar:**
-```
-comparison = expression ((==|!=|<|>|<=|>=) expression)*
-```
-
-**Examples:**
-```
-5 == 5;       // true
-5 != 3;       // true
-x > 5;        // depends on x
-i < 10;       // depends on i
-```
-
----
-
-## 5. Statements
-
-All statements must end with a semicolon `;`.
-
-### 5.1 Assignment
-
-```
-variable = expression;
-```
-
-Evaluates the right-hand expression and stores the result in the named variable.
-
-### 5.2 Print Statements
-
-**`print`** — Outputs a value without a trailing newline.
-**`println`** — Outputs a value followed by a newline.
-
-```
-print "Hello ";
-println "World";      // Hello World (with newline at end)
-println x;
-println accuracy;
-```
-
-Both statements accept any expression.
-
-### 5.3 If / Else Statement
-
-Conditionally executes a block of statements.
-
-**Syntax:**
-```
-if (condition) {
-    statements
-}
-
-if (condition) {
-    statements
-} else {
-    statements
-}
-```
-
-- The condition is any comparison or expression (truthiness is used)
-- The `else` branch is optional
-- Both branches use block syntax `{ ... }`
-
-**Examples:**
-```
-x = 3;
+```flowml
 if (x > 5) {
     println "big";
 } else {
     println "small";
 }
-// Prints: small
-
-if (accuracy) {
-    println accuracy;
-}
 ```
 
-### 5.4 While Loop
+Conditions use Python truthiness at runtime.
 
-Repeatedly executes a block while the condition remains true.
+### 4.4 While Loops
 
-**Syntax:**
-```
-while (condition) {
-    statements
-}
-```
-
-- Condition is re-evaluated before every iteration
-- Terminates when condition is false (or was never true)
-- No break or continue keywords (not yet implemented)
-
-**Examples:**
-```
+```flowml
 i = 0;
-while (i < 5) {
+while (i < 3) {
     println i;
     i = i + 1;
 }
-// Prints: 0, 1, 2, 3, 4
-
-x = 10;
-while (x > 0) {
-    println x;
-    x = x - 1;
-}
-// Counts down from 10 to 1
 ```
 
----
+### 4.5 Functions
 
-## 6. Functions
+Definition:
 
-FlowML supports user-defined functions with parameters, a local scope, and return values.
-
-### 6.1 Function Definition
-
-**Syntax:**
-```
-function name(param1, param2, ...) {
-    statements
-    return expression;
-}
-```
-
-- `function` keyword followed by the function name and parenthesized parameter list
-- Function body is a block `{ ... }` of statements
-- `return` exits the function and optionally provides a value
-- A function without a `return` statement (or with `return;`) returns `null`/`None`
-- Function definitions are stored in the **global scope**, regardless of where they appear
-
-**Examples:**
-```
-function greet(name) {
-    println name;
-}
-
+```flowml
 function add(a, b) {
     return a + b;
 }
+```
 
-function factorial(n) {
-    if (n <= 1) {
-        return 1;
-    }
-    return n * factorial(n - 1);
+Call as expression:
+
+```flowml
+x = add(3, 4);
+println x;
+```
+
+Call as statement:
+
+```flowml
+add(1, 2);
+```
+
+Bare return is allowed:
+
+```flowml
+function f() {
+    return;
 }
 ```
 
-### 6.2 Function Calls
+---
 
-Functions can be called as standalone statements or as part of expressions.
+## 5. Expressions and Precedence
 
-**As a statement:**
-```
-greet("Alice");
+### 5.1 Arithmetic and Unary
+
+- `+`, `-`, `*`, `/`
+- unary minus: `-x`
+
+Important behavior:
+
+- `/` currently performs integer floor-style division in evaluator/codegen (`//` behavior).
+
+### 5.2 Comparisons
+
+- `==`, `!=`, `<`, `>`, `<=`, `>=`
+
+### 5.3 Precedence (low to high)
+
+1. comparison operators
+2. `+` and `-`
+3. `*` and `/`
+4. unary `-`
+5. literals / variables / function calls / parenthesized expressions
+
+### 5.4 Expression Grammar
+
+```text
+comparison = expression ((==|!=|<|>|<=|>=) expression)*
+expression = term (('+'|'-') term)*
+term       = unary (('*'|'/') unary)*
+unary      = '-' unary | factor
+factor     = NUMBER | FLOAT | STRING | BOOLEAN
+           | IDENTIFIER
+           | function_call
+           | '(' expression ')'
 ```
 
-**As an expression (assigned to variable):**
-```
-result = add(3, 7);
-println result;       // 10
-```
+---
 
-**As part of a larger expression:**
-```
-x = add(2, 3) * add(4, 5);
-println x;            // 45
-```
+## 6. Functions and Scope Semantics
 
-**Recursive calls:**
-```
-f = factorial(5);
-println f;            // 120
-```
+Runtime evaluator scope behavior:
 
-### 6.3 Scope Rules
+1. Function definitions are stored in global scope.
+2. Each function call creates a child local scope.
+3. Parameter bindings and assignments inside that call are local to that scope.
+4. Reads can resolve through parent scope chain.
+5. `return` uses an internal unwind mechanism and returns a value (or `None` for bare return).
 
-- Each function call creates a new **child scope** with access to the global scope
-- Parameters and local variables are created in the child scope
-- Assignments inside a function do not affect the calling scope
-- The function can read global variables but any assignment creates a local binding
+Example:
 
-**Example:**
-```
+```flowml
 x = 100;
 
 function demo(n) {
-    x = n;        // local x — does NOT modify global x
+    x = n;       // local x
     return x;
 }
 
-result = demo(42);
-println result;   // 42
-println x;        // 100 — global x unchanged
-```
-
-### 6.4 Grammar (Functions)
-
-```
-function_def    ::= 'function' IDENTIFIER '(' param_list? ')' block
-param_list      ::= IDENTIFIER (',' IDENTIFIER)*
-return_stmt     ::= 'return' comparison? ';'
-function_call   ::= IDENTIFIER '(' arg_list? ')'
-arg_list        ::= comparison (',' comparison)*
+println demo(42);  // 42
+println x;         // 100
 ```
 
 ---
 
-## 7. ML Data Operations
+## 7. ML Statements
 
-These statements operate on the active DataFrame managed by the MLBackend.
+ML statements operate through the active backend state.
 
-### 7.1 load
+### 7.1 `load`
 
-Loads a CSV file into memory as the active DataFrame.
-
-**Syntax:**
-```
-load "path/to/file.csv";
-```
-
-- Path is relative to the working directory where the interpreter is run
-- The CSV's last column is treated as the target (label) variable
-- All other columns are treated as features
-- Internally uses `pandas.read_csv()`
-
-**Example:**
-```
+```flowml
 load "iris.csv";
 ```
 
-### 7.2 drop columns
+- Loads CSV into active DataFrame.
 
-Removes one or more columns from the active DataFrame.
+### 7.2 `drop columns`
 
-**Syntax:**
-```
-drop columns "col1";
-drop columns "col1", "col2", "col3";
-```
-
-- Columns are specified as comma-separated string literals
-- Raises an error if the column does not exist
-- Useful for feature selection/elimination
-
-**Example:**
-```
-load "iris.csv";
+```flowml
 drop columns "sepal_width";
+drop columns "c1", "c2";
 ```
 
-### 7.3 normalize columns
+- Removes one or more columns from active DataFrame.
 
-Marks columns for StandardScaler normalization. Normalization is **deferred** — it does not happen immediately. Instead, the columns are recorded and applied during `split`, separately to the training and test sets. This is a critical design choice that **prevents data leakage**.
+### 7.3 `normalize columns`
 
-**Syntax:**
-```
-normalize columns "col1";
-normalize columns "col1", "col2", "col3";
+```flowml
+normalize columns "sepal_length", "petal_length";
 ```
 
-- Columns are specified as comma-separated string literals
-- Normalization uses `sklearn.preprocessing.StandardScaler`
-- Scaler is fit only on training data (`fit_transform`), then applied to test data (`transform`)
-- Calling `normalize` a second time overwrites the pending column list
+- Deferred behavior: columns are recorded and scaling is applied during `split`.
+- Prevents leakage by fitting scaler on training data then transforming test data.
 
-**Example:**
-```
-load "iris.csv";
-normalize columns "sepal_length", "sepal_width", "petal_length", "petal_width";
+### 7.4 `split`
+
+```flowml
 split data into train=0.8 test=0.2;
-// Normalization is applied here, after the split
+split data into train=0.8 test=0.2 target="species";
 ```
 
-### 7.4 split
+- Requires active DataFrame.
+- Produces `train_set` and `test_set` variables, each `(X, y)`.
+- `target="..."` is optional. If omitted, last column is used as target.
 
-Splits the active DataFrame into training and test sets.
+Ratio rule details:
 
-**Syntax:**
-```
-split data into train=<float> test=<float>;
-```
+- Semantic analyzer checks ratio with tolerance around 1.0.
+- Runtime backend currently enforces exact `train + test == 1.0`.
 
-- `train` and `test` values must be floats that sum to exactly `1.0`
-- Raises an error if ratios do not sum to 1.0
-- Last column is automatically used as the target
-- All other columns are features
-- Creates two variables automatically: `train_set` and `test_set`
-- Each is a tuple `(X, y)` where `X` is a DataFrame of features and `y` is a Series of labels
-- Internally uses `sklearn.model_selection.train_test_split()`
-- Any deferred normalization is applied here
+### 7.5 `model`
 
-**Example:**
-```
-split data into train=0.8 test=0.2;
-// Creates: train_set = (X_train, y_train), test_set = (X_test, y_test)
-```
-
----
-
-## 8. ML Model Operations
-
-### 8.1 model
-
-Instantiates an ML model with optional parameters.
-
-**Syntax:**
-```
-model ModelName;
-model ModelName param1=value1 param2=value2;
-```
-
-**Supported Models:**
-
-| FlowML Name | scikit-learn Class | Type |
-|-------------|-------------------|------|
-| `LogisticRegression` | `LogisticRegression` | Classification |
-| `RandomForest` | `RandomForestClassifier` | Classification |
-| `SVM` | `SVC` | Classification |
-| `KNN` | `KNeighborsClassifier` | Classification |
-| `NaiveBayes` | `GaussianNB` | Classification |
-| `LinearRegression` | `LinearRegression` | Regression |
-| `Ridge` | `Ridge` | Regression |
-| `Lasso` | `Lasso` | Regression |
-| `KMeans` | `KMeans` | Clustering |
-
-**Parameter Mapping (FlowML → scikit-learn):**
-
-| FlowML Param | scikit-learn Param | Used By |
-|-------------|-------------------|---------|
-| `trees` | `n_estimators` | RandomForest |
-| `neighbors` | `n_neighbors` | KNN |
-| `clusters` | `n_clusters` | KMeans |
-| `alpha` | `alpha` | Ridge, Lasso |
-
-Other parameter names are passed through directly to scikit-learn.
-
-**Examples:**
-```
+```flowml
+model RandomForest;
 model RandomForest trees=100;
 model KNN neighbors=5;
 model Ridge alpha=0.1;
-model LogisticRegression;       // No params — uses sklearn defaults
-model SVM;
-model NaiveBayes;
-model KMeans clusters=3;
 ```
 
-### 8.2 train
+Supported model names:
 
-Trains the current model on a dataset.
+- `LogisticRegression`
+- `RandomForest`
+- `SVM`
+- `KNN`
+- `NaiveBayes`
+- `LinearRegression`
+- `Ridge`
+- `Lasso`
+- `KMeans`
 
-**Syntax:**
-```
-train on dataset_variable;
-```
+Parameter aliases:
 
-- `dataset_variable` must be a variable holding a `(X, y)` tuple (typically `train_set`)
-- Calls `model.fit(X, y)` internally
-- If the model is a regressor and the target labels are categorical strings, they are automatically encoded as integers before fitting
-- Raises an error if no model has been defined, or if the variable is undefined
+- `trees` -> `n_estimators`
+- `neighbors` -> `n_neighbors`
+- `clusters` -> `n_clusters`
+- `alpha` -> `alpha`
 
-**Example:**
-```
+### 7.6 `train`
+
+```flowml
 train on train_set;
 ```
 
-### 8.3 evaluate
+- Fits current model on referenced dataset tuple.
 
-Evaluates the trained model on a dataset and stores the score in a variable.
+### 7.7 `evaluate`
 
-**Syntax:**
-```
-result_variable = evaluate on dataset_variable;
-```
-
-- `dataset_variable` must be a variable holding a `(X, y)` tuple (typically `test_set`)
-- Returns the model's accuracy score (0.0 to 1.0) using `model.score(X, y)`
-- Stores the result in `result_variable` for later use
-- Raises an error if no model is defined, or if the variable is undefined
-
-**Example:**
-```
+```flowml
 accuracy = evaluate on test_set;
-println accuracy;     // e.g., 0.9666666666666667
+println accuracy;
+```
+
+- Scores current model on referenced dataset tuple.
+- Stores numeric result in assigned variable.
+
+---
+
+## 8. Static Semantic Analysis
+
+The semantic analyzer walks the AST and returns a list of `SemanticError` objects.
+
+### 8.1 Checks Currently Implemented
+
+1. Undefined variable reads.
+2. Assignment type mismatch checks (when `strict_types=True`).
+3. Invalid operand type categories in arithmetic/comparison expressions.
+4. Function call to undefined function.
+5. Function argument count mismatch.
+6. ML ordering checks:
+   - `drop`, `normalize`, `split` before `load`
+   - `train` before `model`
+   - `train` before `split`
+   - `evaluate` before `train`
+7. Invalid split ratios.
+8. Unknown model names.
+
+### 8.2 Public API
+
+```python
+from flowml import analyze
+errors = analyze(source_text, strict_types=True)
+```
+
+### 8.3 Compile-Path Note
+
+`compile_to_python(...)` runs semantic analysis with `strict_types=False` before code generation.
+
+---
+
+## 9. Compilation and Code Generation
+
+FlowML can generate standalone Python source code.
+
+CLI:
+
+```bash
+python main.py script.fml --compile
+```
+
+Behavior:
+
+1. Lex and parse source.
+2. Run semantic checks.
+3. If semantic errors exist, compilation aborts.
+4. Otherwise emit Python code using pandas/scikit-learn imports.
+
+Current generator coverage:
+
+- assignments, print/println, if/else, while
+- function definition/call/return
+- load/drop/normalize/split/model/train/evaluate
+
+Current generator caveat:
+
+- `split ... target="..."` syntax exists in DSL/runtime, but codegen split emission currently always uses last column as target.
+
+---
+
+## 10. Formal Grammar (Current Parser Shape)
+
+```text
+program            ::= statement*
+
+statement          ::= if_stmt
+                     | while_stmt
+                     | function_def
+                     | return_stmt
+                     | print_stmt
+                     | println_stmt
+                     | load_stmt
+                     | drop_stmt
+                     | normalize_stmt
+                     | split_stmt
+                     | model_stmt
+                     | train_stmt
+                     | evaluate_stmt
+                     | assignment_stmt
+                     | function_call ';'
+                     | expression ';'
+
+assignment_stmt    ::= IDENTIFIER '=' comparison ';'
+evaluate_stmt      ::= IDENTIFIER '=' 'evaluate' 'on' IDENTIFIER ';'
+
+if_stmt            ::= 'if' '(' comparison ')' block ('else' block)?
+while_stmt         ::= 'while' '(' comparison ')' block
+function_def       ::= 'function' IDENTIFIER '(' param_list? ')' block
+return_stmt        ::= 'return' comparison? ';'
+
+print_stmt         ::= 'print' comparison ';'
+println_stmt       ::= 'println' comparison ';'
+
+load_stmt          ::= 'load' STRING ';'
+drop_stmt          ::= 'drop' 'columns' string_list ';'
+normalize_stmt     ::= 'normalize' 'columns' string_list ';'
+
+split_stmt         ::= 'split' 'data' 'into'
+                       'train' '=' FLOAT
+                       'test' '=' FLOAT
+                       ('target' '=' STRING)?
+                       ';'
+
+model_stmt         ::= 'model' IDENTIFIER model_param_list? ';'
+model_param_list   ::= (IDENTIFIER '=' model_param_value)+
+model_param_value  ::= NUMBER | FLOAT | STRING | BOOLEAN
+
+train_stmt         ::= 'train' 'on' IDENTIFIER ';'
+
+block              ::= '{' statement* '}'
+param_list         ::= IDENTIFIER (',' IDENTIFIER)*
+arg_list           ::= comparison (',' comparison)*
+string_list        ::= STRING (',' STRING)*
+
+function_call      ::= IDENTIFIER '(' arg_list? ')'
+
+comparison         ::= expression ((EQ|NEQ|LT|GT|LTE|GTE) expression)*
+expression         ::= term (('+'|'-') term)*
+term               ::= unary (('*'|'/') unary)*
+unary              ::= '-' unary | factor
+factor             ::= NUMBER | FLOAT | STRING | BOOLEAN
+                     | IDENTIFIER
+                     | function_call
+                     | '(' expression ')'
 ```
 
 ---
 
-## 9. Complete Example Programs
+## 11. Error Categories
 
-### Example 1: Simple Countdown
-```
-x = 10;
-while (x > 0) {
-    println x;
-    x = x - 1;
-}
-// Prints 10, 9, 8, ..., 1
-```
+Representative error categories:
 
-### Example 2: ML Pipeline in a Loop
-```
-i = 5;
-while (i > 0) {
-    load "iris.csv";
-    normalize columns "sepal_length", "sepal_width", "petal_length", "petal_width";
-    split data into train=0.8 test=0.2;
-    model RandomForest trees=100;
-    train on train_set;
-    accuracy = evaluate on test_set;
-    if (accuracy) {
-        println accuracy;
-    }
-    i = i - 1;
-}
-// Runs a full ML pipeline 5 times, printing accuracy each time
-```
+- Lexer errors:
+  unexpected character, unterminated string.
+- Parser errors:
+  unexpected token, missing delimiters/terminators.
+- Semantic errors:
+  undefined variables, type/category mismatches, ML ordering issues, bad split ratios, unknown models, function-call mismatches.
+- Runtime evaluator/backend errors:
+  division by zero, missing file, missing dataframe/model/dataset, unknown model, invalid ML operation order at runtime.
 
-### Example 3: Basic Iris Classification
-```
+---
+
+## 12. Current Limitations
+
+The following are still not part of the language:
+
+1. Boolean operators `and`, `or`, `not`.
+2. `for` loops.
+3. List/array literals and indexing syntax.
+4. Object method call syntax in DSL.
+5. `break` and `continue`.
+6. Distinct float division operator (current `/` is integer-style floor behavior).
+
+Static analysis limitations:
+
+1. No full return-type inference for functions.
+2. No deep path-sensitive branch typing.
+
+---
+
+## 13. Minimal End-to-End Example
+
+```flowml
 load "iris.csv";
-split data into train=0.8 test=0.2;
+normalize columns "sepal_length", "sepal_width", "petal_length", "petal_width";
+split data into train=0.8 test=0.2 target="species";
 model RandomForest trees=100;
 train on train_set;
 accuracy = evaluate on test_set;
 println accuracy;
 ```
 
-### Example 4: Drop + Normalize + KNN
-```
-load "iris.csv";
-drop columns "sepal_width";
-normalize columns "sepal_length", "petal_length", "petal_width";
-split data into train=0.8 test=0.2;
-model KNN neighbors=5;
-train on train_set;
-score = evaluate on test_set;
-println score;
-```
-
-### Example 5: Ridge Regression
-```
-load "iris.csv";
-split data into train=0.8 test=0.2;
-model Ridge alpha=0.1;
-train on train_set;
-score = evaluate on test_set;
-println score;
-```
-
-### Example 6: Using evaluate result in logic
-```
-load "iris.csv";
-split data into train=0.8 test=0.2;
-model LogisticRegression;
-train on train_set;
-accuracy = evaluate on test_set;
-copy = accuracy;
-println copy;
-```
-
----
-
-## 10. Formal Grammar (BNF)
-
-```
-program       ::= statement*
-
-statement     ::= assignment_stmt
-                | if_stmt
-                | while_stmt
-                | print_stmt
-                | println_stmt
-                | function_def
-                | return_stmt
-                | load_stmt
-                | drop_stmt
-                | normalize_stmt
-                | split_stmt
-                | model_stmt
-                | train_stmt
-                | evaluate_stmt
-                | function_call ';'
-                | expression ';'
-
-assignment_stmt    ::= IDENTIFIER '=' comparison ';'
-if_stmt            ::= 'if' '(' comparison ')' block ( 'else' block )?
-while_stmt         ::= 'while' '(' comparison ')' block
-print_stmt         ::= 'print' comparison ';'
-println_stmt       ::= 'println' comparison ';'
-function_def       ::= 'function' IDENTIFIER '(' param_list? ')' block
-return_stmt        ::= 'return' comparison? ';'
-
-load_stmt          ::= 'load' STRING ';'
-drop_stmt          ::= 'drop' 'columns' string_list ';'
-normalize_stmt     ::= 'normalize' 'columns' string_list ';'
-split_stmt         ::= 'split' 'data' 'into' 'train' '=' FLOAT 'test' '=' FLOAT ';'
-model_stmt         ::= 'model' IDENTIFIER param_list? ';'
-train_stmt         ::= 'train' 'on' IDENTIFIER ';'
-evaluate_stmt      ::= IDENTIFIER '=' 'evaluate' 'on' IDENTIFIER ';'
-
-block              ::= '{' statement* '}'
-param_list         ::= IDENTIFIER (',' IDENTIFIER)*
-arg_list           ::= comparison (',' comparison)*
-model_param_list   ::= (IDENTIFIER '=' factor)+
-string_list        ::= STRING (',' STRING)*
-function_call      ::= IDENTIFIER '(' arg_list? ')'
-
-comparison         ::= expression ((EQ|NEQ|LT|GT|LTE|GTE) expression)*
-expression         ::= term (('+' | '-') term)*
-term               ::= unary (('*' | '/') unary)*
-unary              ::= '-' unary | factor
-factor             ::= NUMBER | FLOAT | STRING | BOOLEAN | IDENTIFIER
-                     | function_call | '(' expression ')'
-```
-
----
-
-## 11. Error Handling
-
-FlowML provides informative error messages for common errors:
-
-| Error | Example | Message |
-|-------|---------|---------|
-| Lexer: unknown character | `@x = 5;` | `Lexer Error at 1:1: Unexpected character: '@'` |
-| Lexer: unterminated string | `"hello` | `Lexer Error at 1:1: Unterminated string literal` |
-| Parser: unexpected token | `x = ;` | `Parser Error at 1:5: Expected ... but got SEMICOLON` |
-| Runtime: undefined variable | `println y;` | `Evaluator: Undefined variable 'y'` |
-| Runtime: division by zero | `x = 5 / 0;` | `Evaluator: Division by zero` |
-| Runtime: unknown model | `model FakeModel;` | `MLBackend: Unknown model type 'FakeModel'` |
-| Runtime: split ratio error | `split data into train=0.8 test=0.3;` | `MLBackend: Train and test ratios must sum to 1` |
-| Runtime: train before model | `train on train_set;` (no model) | `MLBackend: No model defined. Call 'model' before 'train'.` |
-| Runtime: file not found | `load "missing.csv";` | File not found error from pandas |
-| Runtime: drop missing column | `drop columns "fake";` | `MLBackend: Column 'fake' does not exist` |
-| Runtime: no DataFrame | `drop columns "x";` (no load) | `Evaluator: No active DataFrame to drop column from` |
-| Runtime: wrong arg count | `add(1)` (expects 2 params) | `Function 'add' expects 2 argument(s) but got 1` |
-| Runtime: call non-function | `x = 5; x(1);` | `'x' is not a function` |
-
----
-
-## 12. Semantic Analyzer
-
-FlowML includes an optional static analysis pass that runs before execution. It catches errors early — without running the program — and reports them as a list of `SemanticError` objects.
-
-**Usage:**
-```python
-from flowml import analyze
-errors = analyze(source_code)
-for e in errors:
-    print(e)
-```
-
-**Checks performed:**
-- Use of variables that have never been assigned
-- Type mismatches in assignments (when `strict_types=True`)
-- Arithmetic on incompatible types (e.g., string `+` integer)
-- ML pipeline ordering violations (e.g., `train` before `model`, `split` before `load`)
-- Invalid split ratios (must sum to 1.0)
-- Unknown model names
-
-The analyzer uses a `SymbolTable` backed by a custom hash table to track variable names, their types, and values throughout the analysis pass.
-
----
-
-## 13. Current Limitations
-
-The following features are **not yet implemented** in the current version:
-
-- **Boolean operators:** `and`, `or`, `not` are not supported. Conditions can only be simple comparisons.
-- **For loops:** No `for` construct exists. Iteration requires `while` with a counter.
-- **Arrays/Lists:** No array or list data type. No indexing syntax.
-- **String operations:** No string concatenation via `+`, no string length or slicing.
-- **Method calls:** No object method call syntax (e.g., `df.describe()`).
-- **Compilation to Python:** The `--compile` flag is referenced in `main.py` but not yet implemented.
-- **Float division:** The `/` operator currently performs integer (floor) division. True float division is not yet supported.
-- **Multiple datasets:** Only one active DataFrame at a time. Multiple datasets require re-loading.
-- **Break / continue:** No early loop exit keywords.
-
----
-
-## 14. Future Work
-
-The following features are planned for future versions:
-
-- `and`, `or`, `not` boolean operators
-- `for item in list` iteration
-- Array/list type with indexing (`arr[i]`)
-- String operations (`+` concatenation, `.length`, slicing)
-- True float division with a `//` integer-division operator
-- `break` and `continue` statements
-- Multiple active DataFrames
-- Compilation to Python source code (`--compile` flag)
-- Optional type annotations for function parameters

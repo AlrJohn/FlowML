@@ -1,5 +1,6 @@
 # Local-only files (presentations, NotebookLM sources, scratch test files)
 local/
+docs/
 
 # Python cache
 __pycache__/
